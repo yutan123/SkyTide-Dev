@@ -10,6 +10,7 @@ import 'package:path/path.dart' as p;
 
 import 'db.dart';
 import 'plugin_package_files.dart';
+import 'plugin_launch_spec.dart';
 import 'plugin_config_dialog.dart';
 import 'plugin_config_resources.dart';
 import 'plugin_config_ui.dart';
@@ -190,8 +191,9 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         },
       );
       _operation!.check();
+      var installedLaunchAnimation = false;
       if (row == null) {
-        await PluginSystem.instance.installZip(
+        installedLaunchAnimation = await PluginSystem.instance.installZip(
           file.path,
           operation: _operation,
         );
@@ -204,6 +206,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       }
       await PluginMarket.instance.saveSource(plugin);
       if (row == null) {
+        if (installedLaunchAnimation && mounted) _noticeLaunchInstalled();
         _pendingReadmeId = plugin.id;
       } else {
         _pendingMarketDetails = plugin;
@@ -358,11 +361,29 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     }
   }
 
+  void _noticeLaunchInstalled() =>
+      _notice('启动动画插件已安装，启用后将于下次启动时应用');
+
+  Future<void> _setEnabled(TidePluginPackage pack, bool enabled) async {
+    await PluginService.instance.setEnabled(
+      pack.id,
+      enabled,
+      operation: _operation,
+    );
+    if (mounted && pluginLaunchDeclaration(pack.manifest) != null) {
+      _notice(enabled ? '启动动画已启用，重新打开应用后生效' : '启动动画插件已停用，下次启动时生效');
+    }
+  }
+
   Future<void> _install() async {
     try {
       final path = await _pickZip();
       if (path == null || !mounted) return;
-      await PluginSystem.instance.installZip(path, operation: _operation);
+      final launch = await PluginSystem.instance.installZip(
+        path,
+        operation: _operation,
+      );
+      if (launch && mounted) _noticeLaunchInstalled();
     } finally {
       await _cleanTemp();
     }
@@ -1040,11 +1061,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                             onTap: _busy || pack == null
                                 ? null
                                 : () => _operate(
-                                    () => PluginService.instance.setEnabled(
-                                      id,
-                                      !enabled,
-                                      operation: _operation,
-                                    ),
+                                    () => _setEnabled(pack, !enabled),
                                     cancellable: !enabled,
                                     label: enabled ? '正在关闭插件…' : '正在启用插件…',
                                   ),

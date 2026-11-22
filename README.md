@@ -93,7 +93,7 @@ SkyTide 保留提供商选择权，是为了让角色体验、预算和能力配
 
 在应用的「插件管理」中，可从「插件市场」安装插件，也可导入本地 ZIP。安装后可查看插件声明的权限，并按需启用和配置。市场优先展示索引中声明的插件缩略图，缺少缩略图或图片加载失败时显示默认图标。
 
-插件开发、示例与市场提交规范见 [SkyTide 插件仓库](https://github.com/yutan123/SkyTide-plugins)。
+插件开发、示例与市场提交规范见 [SkyTide 插件仓库](https://github.com/yutan123/SkyTide-plugins)。应用内开屏动画的插件清单与素材规格见[启动动画插件接口](https://github.com/yutan123/SkyTide-plugins/blob/main/docs/LAUNCH_ANIMATION.md)。
 
 ### 技能包
 

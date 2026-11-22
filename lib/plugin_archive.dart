@@ -1,4 +1,5 @@
 import 'plugin_media_contract.dart';
+import 'plugin_launch_spec.dart';
 import 'dart:convert';
 import 'plugin_worker_policy.dart';
 import 'plugin_event_policy.dart';
@@ -180,6 +181,27 @@ class PluginArchive {
     final version = m['version'];
     final name = m['name'];
     final entry = m['entry'];
+    final launch = PluginLaunchSpec.fromManifest(m);
+    launch?.validateAsset(files[launch.asset]);
+    final hasProgram =
+        entry is String && _safeRelative(entry) && files.containsKey(entry);
+    final appearanceOnly = !m.containsKey('entry') && launch != null;
+    if (appearanceOnly &&
+        m.keys.any(
+          (key) => !const {
+            'id',
+            'name',
+            'version',
+            'description',
+            'author',
+            'icon',
+            'apiVersion',
+            'appearance',
+            'requiredCapabilities',
+          }.contains(key),
+        )) {
+      throw const FormatException('无 entry 的启动动画插件只允许声明外观和元数据');
+    }
     final idPattern = RegExp(
       r'^skytide[a-z0-9_.-]{0,57}$',
       caseSensitive: false,
@@ -193,9 +215,7 @@ class PluginArchive {
         !RegExp(
           r'^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$',
         ).hasMatch(version) ||
-        entry is! String ||
-        !_safeRelative(entry) ||
-        !files.containsKey(entry)) {
+        (!hasProgram && !appearanceOnly)) {
       throw const FormatException('插件 manifest 的 id/name/version/entry 无效');
     }
     if (!{'script', 'commonjs'}.contains(m['entryFormat'] ?? 'script'))
@@ -206,7 +226,7 @@ class PluginArchive {
           paths.length > 255 ||
           paths.toSet().length != paths.length)
         throw FormatException('$field 必须为不重复的包内路径数组，最多 255 项');
-      var total = files[entry]!.length;
+      var total = files[entry]?.length ?? 0;
       for (final path in paths) {
         if (path is! String || !_safeRelative(path) || !files.containsKey(path))
           throw FormatException('$field 路径无效或不存在');
@@ -243,7 +263,8 @@ class PluginArchive {
         )) {
       throw const FormatException('插件要求当前宿主不支持的 requiredCapabilities');
     }
-    if (!entry.endsWith('.js') || files[entry]!.length > 2 * 1024 * 1024) {
+    if (entry is String &&
+        (!entry.endsWith('.js') || files[entry]!.length > 2 * 1024 * 1024)) {
       throw const FormatException('entry 必须为不超过 2 MB 的 JS bundle');
     }
     for (final field in ['description', 'author']) {

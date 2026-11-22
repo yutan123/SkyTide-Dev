@@ -65,7 +65,7 @@ void main() {
       expect(OtaReleasePicker.versionOf({'tag_name': 'v1.0.2+3'}), '1.0.2');
     });
 
-    test('accepts current and legacy release APK names', () {
+    test('only accepts the SkyTide APK name regardless of case', () {
       final urls = OtaReleasePicker.apkUrls({
         'assets': [
           {
@@ -73,7 +73,7 @@ void main() {
             'browser_download_url': 'https://example.com/other.apk',
           },
           {
-            'name': 'SkyTide.apk',
+            'name': 'SKYTIDE.APK',
             'browser_download_url': 'https://example.com/SkyTide.apk',
           },
         ],
@@ -91,7 +91,7 @@ void main() {
             ],
           ),
         ),
-        ['https://example.com/TideBot.apk'],
+        isEmpty,
       );
     });
 

@@ -73,7 +73,7 @@ class OtaReleasePicker {
     for (final raw in assets.whereType<Map>()) {
       final name = raw['name']?.toString() ?? '';
       final url = raw['browser_download_url']?.toString() ?? '';
-      if (const {'skytide.apk', 'tidebot.apk'}.contains(name.toLowerCase()) &&
+      if (name.toLowerCase() == 'skytide.apk' &&
           OtaRelease.httpsUrl(url) != null) {
         urls.add(url.trim());
       }

@@ -45,6 +45,7 @@ class PluginContract {
     'database.vector',
     'commands',
     'events.priority',
+    'appearance.launchAnimation',
     'ai',
   };
   static const hooks = {

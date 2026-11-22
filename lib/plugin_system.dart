@@ -11,6 +11,7 @@ import 'db.dart';
 import 'plugin_archive.dart';
 import 'plugin_coordinator.dart';
 import 'plugin_install_journal.dart';
+import 'plugin_launch_spec.dart';
 
 class TidePluginPackage {
   final Map<String, dynamic> manifest;
@@ -19,6 +20,7 @@ class TidePluginPackage {
   String get id => manifest['id'] as String;
   String get name => manifest['name'] as String;
   String get version => manifest['version'] as String;
+  bool get hasProgram => manifest['entry'] is String;
   String get entry => manifest['entry'] as String;
   bool get hasUi =>
       manifest['ui'] is Map &&
@@ -98,7 +100,7 @@ class PluginSystem {
   Future<void> _journal(Directory root, Map<String, dynamic> record) =>
       _recovery.write(root, record);
 
-  Future<void> installZip(
+  Future<bool> installZip(
     String zipPath, {
     bool update = false,
     String? expectedId,
@@ -112,7 +114,8 @@ class PluginSystem {
     final bytes = await file.readAsBytes();
     final archive = await _decodeArchive(bytes, operation);
     operation?.check();
-    final manifest = Map<String, dynamic>.from(archive.manifest);
+    final manifest = Map<String, dynamic>.from(archive.manifest)
+      ..remove(pluginLaunchEnabledOrderKey);
     manifest['_installedPackage'] = {
       'source': 'local',
       'sha256': sha256.convert(bytes).toString(),
@@ -124,6 +127,13 @@ class PluginSystem {
     }
     final rows = await DBManager().queryPlugins();
     final previous = rows.where((row) => row['id'] == id).firstOrNull;
+    final launch = pluginLaunchDeclaration(manifest) != null;
+    if (launch && update && previous != null && previous['enabled'] == 1) {
+      final priorOrder = _launchOrder(
+        jsonDecode(previous['manifest_json'] as String),
+      );
+      if (priorOrder > 0) manifest[pluginLaunchEnabledOrderKey] = priorOrder;
+    }
     final target = Directory(p.join(root.path, id));
     final existed = await target.exists();
     if ((existed || previous != null) && !update) {
@@ -184,12 +194,70 @@ class PluginSystem {
     } finally {
       operation?.endCommit();
     }
+    return launch;
+  });
+
+  static int _launchOrder(Object? manifest) {
+    final value = manifest is Map
+        ? manifest[pluginLaunchEnabledOrderKey]
+        : null;
+    return value is int && value > 0 ? value : 0;
+  }
+
+  Future<TidePluginPackage?> launchAnimationPackage() => _transaction((
+    root,
+  ) async {
+    final rows = await DBManager().queryPlugins();
+    TidePluginPackage? selected;
+    var selectedOrder = -1;
+    for (final row in rows) {
+      if (row['enabled'] != 1) continue;
+      final manifest =
+          jsonDecode(row['manifest_json'] as String) as Map<String, dynamic>;
+      if (pluginLaunchDeclaration(manifest) == null) continue;
+      final id = row['id'] as String;
+      _checkId(id);
+      final order = _launchOrder(manifest);
+      if (selected == null ||
+          order > selectedOrder ||
+          (order == selectedOrder && id.compareTo(selected.id) < 0)) {
+        selected = TidePluginPackage(
+          manifest,
+          Directory(p.join(root.path, id)),
+        );
+        selectedOrder = order;
+      }
+    }
+    return selected;
   });
 
   Future<void> setEnabled(String id, bool enabled) => _transaction((_) async {
     _checkId(id);
     if (!enabled) await PluginCoordinator.invalidate(id);
-    await DBManager().setPluginEnabled(id, enabled);
+    final db = DBManager();
+    final rows = await db.queryPlugins();
+    final row = rows.where((row) => row['id'] == id).firstOrNull;
+    String? manifestJson;
+    if (row != null) {
+      final manifest =
+          jsonDecode(row['manifest_json'] as String) as Map<String, dynamic>;
+      if (pluginLaunchDeclaration(manifest) != null) {
+        if (!enabled) {
+          manifest.remove(pluginLaunchEnabledOrderKey);
+        } else if (_launchOrder(manifest) == 0) {
+          var order = DateTime.now().microsecondsSinceEpoch;
+          for (final other in rows.where((row) => row['enabled'] == 1)) {
+            final previous = _launchOrder(
+              jsonDecode(other['manifest_json'] as String),
+            );
+            if (previous >= order) order = previous + 1;
+          }
+          manifest[pluginLaunchEnabledOrderKey] = order;
+        }
+        manifestJson = jsonEncode(manifest);
+      }
+    }
+    await db.setPluginEnabled(id, enabled, manifestJson: manifestJson);
   });
   Future<void> delete(String id) => _transaction((root) async {
     _checkId(id);

@@ -6,6 +6,19 @@ import 'package:shared_preferences_android/shared_preferences_android.dart';
 import 'daily_launch_animation.dart';
 import 'legal_pages.dart';
 import 'main.dart' show TideMainScaffold;
+import 'plugin_launch_animation.dart';
+import 'plugin_system.dart';
+
+Future<({bool resolved, TidePluginPackage? package})> _resolveLaunch() async {
+  try {
+    final package = await PluginSystem.instance
+        .launchAnimationPackage()
+        .timeout(const Duration(milliseconds: 600));
+    return (resolved: true, package: package);
+  } catch (_) {
+    return (resolved: false, package: null);
+  }
+}
 
 const _agreementKey = 'legal_agreement_accepted';
 const _ageKey = 'legal_age_confirmed';
@@ -72,6 +85,8 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
   _StartupSettings? _settings;
   Object? _error;
   bool _accepted = false;
+  bool _launchResolved = false;
+  TidePluginPackage? _launchPackage;
   @override
   void initState() {
     super.initState();
@@ -81,15 +96,19 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
   Future<void> _load() async {
     if (_error != null) setState(() => _error = null);
     final elapsed = Stopwatch()..start();
+    final launchLookup = _resolveLaunch();
     try {
       final settings = await _readStartupSettings().timeout(
         const Duration(seconds: 3),
       );
       debugPrint('[startup] settings read in ${elapsed.elapsedMilliseconds}ms');
+      final launch = await launchLookup;
       if (!mounted) return;
       setState(() {
         _settings = settings;
         _accepted = settings.accepted;
+        _launchResolved = launch.resolved;
+        _launchPackage = launch.package;
       });
     } catch (error) {
       debugPrint(
@@ -112,16 +131,22 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
         ),
       );
     }
+    final destination = _accepted
+        ? _ReadyHome(onReady: widget.onReady)
+        : LegalAgreementPage(
+            requiredAcceptance: true,
+            onAccepted: () => setState(() => _accepted = true),
+          );
+    final package = _launchPackage;
+    if (package != null) {
+      return PluginLaunchAnimation(package: package, child: destination);
+    }
+    if (!_launchResolved) return destination;
     return DailyLaunchAnimation(
       lastPlayedDate: settings.animationDate,
       savePlayedDate: settings.saveAnimationDate,
       force: !_accepted,
-      child: _accepted
-          ? _ReadyHome(onReady: widget.onReady)
-          : LegalAgreementPage(
-              requiredAcceptance: true,
-              onAccepted: () => setState(() => _accepted = true),
-            ),
+      child: destination,
     );
   }
 }

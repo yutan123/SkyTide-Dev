@@ -1301,10 +1301,16 @@ class DBManager {
       (await database).query('plugins', orderBy: 'updated_at DESC');
   Future<void> savePlugin(Map<String, dynamic> plugin) async => (await database)
       .insert('plugins', plugin, conflictAlgorithm: ConflictAlgorithm.replace);
-  Future<void> setPluginEnabled(String id, bool enabled) async =>
-      (await database).update(
+  Future<void> setPluginEnabled(
+    String id,
+    bool enabled, {
+    String? manifestJson,
+  }) async => (await database).update(
         'plugins',
-        {'enabled': enabled ? 1 : 0},
+        {
+          'enabled': enabled ? 1 : 0,
+          if (manifestJson != null) 'manifest_json': manifestJson,
+        },
         where: 'id = ?',
         whereArgs: [id],
       );

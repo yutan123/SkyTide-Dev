@@ -378,7 +378,7 @@ class PluginService {
     PluginOperation? operation,
   }) async {
     operation?.check();
-    if (_running.containsKey(pack.id)) return;
+    if (!pack.hasProgram || _running.containsKey(pack.id)) return;
     await _storageQueues.remove(pack.id);
     _stopping.remove(pack.id);
     _epochs[pack.id] = await PluginCoordinator.epoch(pack.id);
