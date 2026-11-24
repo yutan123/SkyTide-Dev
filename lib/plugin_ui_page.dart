@@ -9,6 +9,7 @@ import 'plugin_service.dart';
 import 'plugin_system.dart';
 import 'plugin_web_page.dart';
 import 'theme.dart';
+import 'tide_appearance_surface.dart';
 
 /// Routes package UI to the declared renderer.
 class PluginUiPage extends StatefulWidget {
@@ -145,7 +146,7 @@ class _PluginUiPageState extends State<PluginUiPage> {
           ],
         );
       case 'card':
-        return Card(
+        return TideMaterialCard(
           child: Padding(
             padding: const EdgeInsets.all(16),
             child: Column(

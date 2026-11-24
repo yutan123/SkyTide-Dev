@@ -30,6 +30,7 @@ import 'package:http/http.dart' as http;
 
 import 'app_log_service.dart';
 import 'plugin_contract.dart';
+import 'plugin_message_action.dart';
 import 'plugin_chat_session.dart';
 import 'plugin_chat_host.dart';
 import 'plugin_coordinator.dart';
@@ -439,10 +440,15 @@ class PluginService {
         '',
         PluginEventPolicy.commands(pack.manifest['commands']),
       );
+      await runtime.call(
+        'validateMessageActions',
+        '',
+        PluginMessageAction.parse(
+          pack.manifest['messageActions'],
+        ).map((action) => action.id).toList(),
+      );
       await runtime.call('event', 'activate', {});
       operation?.check();
-      _running[pack.id] = runtime;
-      _configSnapshots[pack.id] = jsonEncode(config);
       final specs = PluginWorkerPolicy.validate(pack.manifest['workers']);
       await runtime.call(
         'validateWorkers',
@@ -469,6 +475,11 @@ class PluginService {
       if ((pack.manifest['hooks'] as List? ?? []).contains('app.ready')) {
         await runtime.call('event', 'app.ready', {'apiVersion': 1});
       }
+      await _assertCurrent(pack);
+      operation?.check();
+      if (runtime.closed) throw StateError('插件在启动时停止运行');
+      _running[pack.id] = runtime;
+      _configSnapshots[pack.id] = jsonEncode(config);
     } catch (_) {
       // Mark stopping so any in-flight host callbacks do not proceed, then
       // clean up. The id is removed from _stopping once the entry is gone so a
@@ -529,74 +540,65 @@ class PluginService {
     _networks.remove(id)?.close();
     errors.remove(id);
   });
+  final _updating = <String>{};
 
-  /// Replaces the installed package files with a new ZIP while preserving
-  /// private storage.  Stops the plugin first so the files are not in use,
-  /// then re-enables it only if its persisted state was enabled.
+  /// Updates the package without publishing the new row until activation succeeds.
   Future<void> updateZip(
     String id,
     String zipPath, {
+    String? marketSource,
     PluginOperation? operation,
   }) => _exclusive(() async {
     operation?.check();
-    final previous = (await PluginSystem.instance.list()).firstWhere(
-      (row) => row['id'] == id,
-    );
+    final system = PluginSystem.instance;
+    final previous = (await system.list()).firstWhere((row) => row['id'] == id);
     final wasEnabled = previous['enabled'] == 1;
-    await PluginCoordinator.invalidate(id);
-    await _stop(id);
-    _fileTransfers.remove(id)?.close();
-    _networks.remove(id)?.close();
-    errors.remove(id);
+    var stoppedPrevious = false;
+    _updating.add(id);
     try {
-      await PluginSystem.instance.installZip(
+      await system.installZip(
         zipPath,
         update: true,
         expectedId: id,
+        marketSource: marketSource,
+        beforeSwap: () async {
+          stoppedPrevious = true;
+          await _stop(id);
+          errors.remove(id);
+        },
+        verifyUpdate: (pack) async {
+          await _start(pack, operation: operation);
+          if (pack.hasProgram && _running[id]?.closed != false) {
+            throw StateError('新版本在启动时停止运行');
+          }
+        },
+        stopCandidate: () async {
+          await PluginCoordinator.invalidate(id);
+          await _stop(id);
+        },
         operation: operation,
       );
-    } catch (error) {
-      if (wasEnabled && operation?.cancelled != true) {
+    } catch (error, stack) {
+      if (stoppedPrevious) {
         try {
-          final recovered = (await PluginSystem.instance.list()).firstWhere(
+          final recovered = (await system.list()).firstWhere(
             (row) => row['id'] == id,
           );
-          await _start(await PluginSystem.instance.packageFor(recovered));
-        } catch (restartError) {
-          await PluginSystem.instance.setEnabled(id, false);
-          errors[id] = '更新失败，旧版恢复失败：$restartError';
-        }
-      }
-      if (operation?.cancelled == true) {
-        await PluginSystem.instance.setEnabled(id, false);
-      }
-      rethrow;
-    }
-    operation?.check();
-    if (wasEnabled) {
-      final rows = await PluginSystem.instance.list();
-      final row = rows.firstWhere((r) => r['id'] == id);
-      try {
-        await _start(
-          await PluginSystem.instance.packageFor(row),
-          operation: operation,
-        );
-        operation?.beginCommit();
-        await PluginSystem.instance.setEnabled(id, true);
-      } catch (error) {
-        await _stop(id);
-        if (operation?.cancelled == true) {
-          _fileTransfers.remove(id)?.close();
-          _networks.remove(id)?.close();
+          if (recovered['updated_at'] != previous['updated_at'] ||
+              recovered['manifest_json'] != previous['manifest_json']) {
+            throw StateError('旧版本未恢复');
+          }
           errors.remove(id);
-        } else {
-          errors[id] = error.toString();
+          if (wasEnabled) await _start(await system.packageFor(recovered));
+        } catch (restartError) {
+          errors[id] = '更新失败，旧版恢复失败：$restartError';
+          _log(id, errors[id]!);
+          throw PluginUpdateRecoveryFailure(error, restartError);
         }
-        await PluginSystem.instance.setEnabled(id, false);
-        rethrow;
-      } finally {
-        operation?.endCommit();
       }
+      Error.throwWithStackTrace(error, stack);
+    } finally {
+      _updating.remove(id);
     }
   });
 
@@ -650,6 +652,61 @@ class PluginService {
   Future<void> _assertBotAllowed(TidePluginPackage pack, String botId) async {
     await _assertCurrent(pack);
     if (!await allowsBot(pack.id, botId)) throw StateError('此机器人未启用该插件');
+  }
+
+  Future<List<({TidePluginPackage pack, PluginMessageAction action})>>
+  messageActions(String botId) async {
+    final result = <({TidePluginPackage pack, PluginMessageAction action})>[];
+    for (final pack in _orderedPackages()) {
+      final actions = PluginMessageAction.parse(
+        pack.manifest['messageActions'],
+      );
+      if (actions.isEmpty ||
+          _updating.contains(pack.id) ||
+          _running[pack.id]?.closed != false ||
+          _stopping.contains(pack.id) ||
+          !await allowsBot(pack.id, botId) ||
+          !identical(_packages[pack.id], pack))
+        continue;
+      result.addAll(actions.map((action) => (pack: pack, action: action)));
+    }
+    return result;
+  }
+
+  Future<String?> runMessageAction(
+    TidePluginPackage pack,
+    String action,
+    String botId,
+    Map<String, dynamic> message,
+  ) async {
+    final payload = PluginMessageAction.payload(message);
+    if (payload == null ||
+        !PluginMessageAction.parse(
+          pack.manifest['messageActions'],
+        ).any((item) => item.id == action)) {
+      throw StateError('消息或插件操作不可用');
+    }
+    await _assertBotAllowed(pack, botId);
+    final runtime = _running[pack.id];
+    if (_updating.contains(pack.id) ||
+        runtime == null ||
+        runtime.closed ||
+        !identical(_packages[pack.id], pack)) {
+      throw StateError('插件操作已失效');
+    }
+    final result = await runtime
+        .call('messageAction', action, payload)
+        .catchError((Object error, StackTrace stack) {
+          _log(pack.id, '消息操作 $action 失败：$error');
+          Error.throwWithStackTrace(error, stack);
+        });
+    await _assertBotAllowed(pack, botId);
+    if (result == null) return null;
+    if (result is! String ||
+        result.length > PluginMessageAction.maxResultLength) {
+      throw StateError('插件操作返回值无效');
+    }
+    return result;
   }
 
   static String toolName(String id, String name) =>
@@ -1642,4 +1699,14 @@ class PluginService {
     }
     throw StateError('未知宿主 API：$method');
   }
+}
+
+final class PluginUpdateRecoveryFailure implements Exception {
+  const PluginUpdateRecoveryFailure(this.updateError, this.recoveryError);
+
+  final Object updateError;
+  final Object recoveryError;
+
+  @override
+  String toString() => '更新失败：$updateError；旧版恢复失败：$recoveryError';
 }

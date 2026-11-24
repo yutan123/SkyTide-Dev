@@ -1,3 +1,4 @@
+import 'plugin_interface_theme.dart';
 import 'plugin_media_contract.dart';
 import 'plugin_launch_spec.dart';
 import 'dart:convert';
@@ -8,6 +9,7 @@ import 'package:archive/archive.dart';
 import 'package:path/path.dart' as p;
 
 import 'plugin_contract.dart';
+import 'plugin_message_action.dart';
 import 'plugin_connections.dart';
 
 /// Pure Dart package validation, shared by installation and package checks.
@@ -182,10 +184,13 @@ class PluginArchive {
     final name = m['name'];
     final entry = m['entry'];
     final launch = PluginLaunchSpec.fromManifest(m);
-    launch?.validateAsset(files[launch.asset]);
+    launch?.validateFiles(files);
+    final interfaceTheme = PluginInterfaceTheme.fromManifest(m);
+    interfaceTheme?.validateFiles(files);
     final hasProgram =
         entry is String && _safeRelative(entry) && files.containsKey(entry);
-    final appearanceOnly = !m.containsKey('entry') && launch != null;
+    final appearanceOnly =
+        !m.containsKey('entry') && (launch != null || interfaceTheme != null);
     if (appearanceOnly &&
         m.keys.any(
           (key) => !const {
@@ -200,7 +205,7 @@ class PluginArchive {
             'requiredCapabilities',
           }.contains(key),
         )) {
-      throw const FormatException('无 entry 的启动动画插件只允许声明外观和元数据');
+      throw const FormatException('无 entry 的外观插件只允许声明外观和元数据');
     }
     final idPattern = RegExp(
       r'^skytide[a-z0-9_.-]{0,57}$',
@@ -291,6 +296,7 @@ class PluginArchive {
       }
       PluginContract.schema(tool['parameters'] as Map);
     }
+    PluginMessageAction.parse(m['messageActions']);
     final commands = PluginEventPolicy.commands(m['commands']);
     PluginEventPolicy.priority(m['eventPriority']);
     if (commands.isNotEmpty &&

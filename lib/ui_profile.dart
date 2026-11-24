@@ -106,7 +106,8 @@ class _ProfilePageState extends State<ProfilePage> {
     final ctrl = TextEditingController(text: _userName);
     final name = await TideDialogs.show<String>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => TideAlertDialog(
+        kind: TideDialogKind.form,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         content: TideDialogs.glassContent(
@@ -1507,7 +1508,8 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                 tooltip: '说明',
                 onPressed: () => TideDialogs.show(
                   context: context,
-                  builder: (ctx) => AlertDialog(
+                  builder: (ctx) => TideAlertDialog(
+                    kind: TideDialogKind.confirm,
                     backgroundColor: theme.surface,
                     title: Text(
                       title,
@@ -2030,7 +2032,8 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                                     );
                                     final custom = await TideDialogs.show<String>(
                                       context: context,
-                                      builder: (ctx) => AlertDialog(
+                                      builder: (ctx) => TideAlertDialog(
+                                        kind: TideDialogKind.form,
                                         backgroundColor: Colors.transparent,
                                         contentPadding: EdgeInsets.zero,
                                         content: TideDialogs.glassContent(
@@ -2231,7 +2234,8 @@ class _GeneralSettingsPageState extends State<GeneralSettingsPage> {
                       if (v) {
                         final ok = await TideDialogs.show<bool>(
                           context: context,
-                          builder: (ctx) => AlertDialog(
+                          builder: (ctx) => TideAlertDialog(
+                            kind: TideDialogKind.confirm,
                             backgroundColor: Colors.transparent,
                             contentPadding: EdgeInsets.zero,
                             content: TideDialogs.glassContent(
@@ -2988,7 +2992,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     var reasoningEffort = 'medium';
     TideDialogs.show(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => TideAlertDialog(
+        kind: TideDialogKind.form,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         content: TideDialogs.glassContent(
@@ -3117,7 +3122,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     final mCtrl = TextEditingController(text: model);
     TideDialogs.show(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => TideAlertDialog(
+        kind: TideDialogKind.form,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         content: TideDialogs.glassContent(
@@ -3253,7 +3259,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     var supportsInstructions = nativeInstructions;
     TideDialogs.show(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => TideAlertDialog(
+        kind: TideDialogKind.form,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         content: TideDialogs.glassContent(
@@ -3500,238 +3507,243 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
               ? models
               : models.where((m) => m.toLowerCase().contains(query)).toList();
           final theme = TideTheme.of(pickerContext);
-          return AlertDialog(
+          return TideAlertDialog(
+            kind: TideDialogKind.choice,
             backgroundColor: Colors.transparent,
             insetPadding: const EdgeInsets.symmetric(
               horizontal: 20,
               vertical: 24,
             ),
             contentPadding: EdgeInsets.zero,
-            content: Container(
-              width: 420,
-              constraints: const BoxConstraints(maxWidth: 460),
-              decoration: BoxDecoration(
-                color: theme.surface,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.primary.withValues(alpha: .18)),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 36,
-                          height: 36,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: theme.primary.withValues(alpha: .12),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Icon(
-                            Icons.memory_rounded,
-                            color: theme.primary,
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Expanded(
-                          child: Text(
-                            '选择模型',
-                            style: TextStyle(
-                              fontSize: 17,
-                              fontWeight: FontWeight.w700,
-                              fontFamily: 'TideFont',
+            content: TideDialogBody(
+              Container(
+                width: 420,
+                constraints: const BoxConstraints(maxWidth: 460),
+                decoration: BoxDecoration(
+                  color: theme.surface,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.primary.withValues(alpha: .18),
+                  ),
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 18, 12, 14),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: theme.primary.withValues(alpha: .12),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '关闭',
-                          onPressed: () => Navigator.pop(pickerContext),
-                          icon: Icon(
-                            Icons.close_rounded,
-                            color: theme.iconMuted,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Divider(
-                    height: 1,
-                    color: theme.textFaint.withValues(alpha: .2),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
-                    child: TextField(
-                      contextMenuBuilder: androidTextContextMenu,
-                      controller: searchCtrl,
-                      onChanged: (_) => setPickerState(() {}),
-                      autofocus: false,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: theme.textStrong,
-                        fontFamily: 'TideFont',
-                      ),
-                      decoration: InputDecoration(
-                        hintText: '搜索已获取的模型',
-                        hintStyle: TextStyle(
-                          color: theme.textFaint,
-                          fontFamily: 'TideFont',
-                        ),
-                        prefixIcon: Icon(
-                          Icons.search_rounded,
-                          color: theme.iconMuted,
-                        ),
-                        filled: true,
-                        fillColor: theme.surfaceVariant,
-                        contentPadding: const EdgeInsets.symmetric(
-                          vertical: 11,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide: BorderSide.none,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    height: 300,
-                    margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                    decoration: BoxDecoration(
-                      color: theme.surfaceVariant.withValues(alpha: .55),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: loading
-                        ? Center(
-                            child: CircularProgressIndicator(
+                            child: Icon(
+                              Icons.memory_rounded,
                               color: theme.primary,
                             ),
-                          )
-                        : error != null
-                        ? Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(24),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    Icons.cloud_off_rounded,
-                                    size: 30,
-                                    color: theme.textWeak,
-                                  ),
-                                  const SizedBox(height: 10),
-                                  Text(
-                                    '获取模型失败',
-                                    style: TextStyle(
-                                      color: theme.textStrong,
-                                      fontFamily: 'TideFont',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    error!,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    textAlign: TextAlign.center,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: theme.textWeak,
-                                      fontFamily: 'TideFont',
-                                    ),
-                                  ),
-                                  const SizedBox(height: 12),
-                                  OutlinedButton.icon(
-                                    onPressed: () {
-                                      loadStarted = false;
-                                      load();
-                                    },
-                                    icon: const Icon(
-                                      Icons.refresh_rounded,
-                                      size: 18,
-                                    ),
-                                    label: const Text('重试'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          )
-                        : visible.isEmpty
-                        ? Center(
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
                             child: Text(
-                              '没有匹配的模型',
+                              '选择模型',
                               style: TextStyle(
-                                color: theme.textWeak,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w700,
                                 fontFamily: 'TideFont',
                               ),
                             ),
-                          )
-                        : ListView.separated(
-                            padding: const EdgeInsets.symmetric(vertical: 4),
-                            itemCount: visible.length,
-                            separatorBuilder: (_, __) => Divider(
-                              height: 1,
-                              indent: 14,
-                              endIndent: 14,
-                              color: theme.textFaint.withValues(alpha: .16),
+                          ),
+                          IconButton(
+                            tooltip: '关闭',
+                            onPressed: () => Navigator.pop(pickerContext),
+                            icon: Icon(
+                              Icons.close_rounded,
+                              color: theme.iconMuted,
                             ),
-                            itemBuilder: (_, index) => ListTile(
-                              dense: true,
-                              visualDensity: VisualDensity.compact,
-                              leading: Icon(
-                                Icons.auto_awesome_rounded,
-                                size: 18,
+                          ),
+                        ],
+                      ),
+                    ),
+                    Divider(
+                      height: 1,
+                      color: theme.textFaint.withValues(alpha: .2),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 14, 20, 12),
+                      child: TextField(
+                        contextMenuBuilder: androidTextContextMenu,
+                        controller: searchCtrl,
+                        onChanged: (_) => setPickerState(() {}),
+                        autofocus: false,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: theme.textStrong,
+                          fontFamily: 'TideFont',
+                        ),
+                        decoration: InputDecoration(
+                          hintText: '搜索已获取的模型',
+                          hintStyle: TextStyle(
+                            color: theme.textFaint,
+                            fontFamily: 'TideFont',
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search_rounded,
+                            color: theme.iconMuted,
+                          ),
+                          filled: true,
+                          fillColor: theme.surfaceVariant,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 11,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Container(
+                      height: 300,
+                      margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                      decoration: BoxDecoration(
+                        color: theme.surfaceVariant.withValues(alpha: .55),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: loading
+                          ? Center(
+                              child: CircularProgressIndicator(
                                 color: theme.primary,
                               ),
-                              title: Text(
-                                visible[index],
+                            )
+                          : error != null
+                          ? Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(24),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.cloud_off_rounded,
+                                      size: 30,
+                                      color: theme.textWeak,
+                                    ),
+                                    const SizedBox(height: 10),
+                                    Text(
+                                      '获取模型失败',
+                                      style: TextStyle(
+                                        color: theme.textStrong,
+                                        fontFamily: 'TideFont',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      error!,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: theme.textWeak,
+                                        fontFamily: 'TideFont',
+                                      ),
+                                    ),
+                                    const SizedBox(height: 12),
+                                    OutlinedButton.icon(
+                                      onPressed: () {
+                                        loadStarted = false;
+                                        load();
+                                      },
+                                      icon: const Icon(
+                                        Icons.refresh_rounded,
+                                        size: 18,
+                                      ),
+                                      label: const Text('重试'),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            )
+                          : visible.isEmpty
+                          ? Center(
+                              child: Text(
+                                '没有匹配的模型',
                                 style: TextStyle(
-                                  fontSize: 14,
-                                  color: theme.textStrong,
+                                  color: theme.textWeak,
                                   fontFamily: 'TideFont',
                                 ),
                               ),
-                              trailing: modelCtrl.text == visible[index]
-                                  ? Icon(
-                                      Icons.check_circle_rounded,
-                                      size: 18,
-                                      color: theme.primary,
-                                    )
-                                  : null,
-                              onTap: () {
-                                modelCtrl.text = visible[index];
-                                Navigator.pop(pickerContext);
-                              },
+                            )
+                          : ListView.separated(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              itemCount: visible.length,
+                              separatorBuilder: (_, __) => Divider(
+                                height: 1,
+                                indent: 14,
+                                endIndent: 14,
+                                color: theme.textFaint.withValues(alpha: .16),
+                              ),
+                              itemBuilder: (_, index) => ListTile(
+                                dense: true,
+                                visualDensity: VisualDensity.compact,
+                                leading: Icon(
+                                  Icons.auto_awesome_rounded,
+                                  size: 18,
+                                  color: theme.primary,
+                                ),
+                                title: Text(
+                                  visible[index],
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: theme.textStrong,
+                                    fontFamily: 'TideFont',
+                                  ),
+                                ),
+                                trailing: modelCtrl.text == visible[index]
+                                    ? Icon(
+                                        Icons.check_circle_rounded,
+                                        size: 18,
+                                        color: theme.primary,
+                                      )
+                                    : null,
+                                onTap: () {
+                                  modelCtrl.text = visible[index];
+                                  Navigator.pop(pickerContext);
+                                },
+                              ),
+                            ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                      child: Row(
+                        children: [
+                          Text(
+                            '${visible.length} 个模型',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.textWeak,
+                              fontFamily: 'TideFont',
                             ),
                           ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-                    child: Row(
-                      children: [
-                        Text(
-                          '${visible.length} 个模型',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: theme.textWeak,
-                            fontFamily: 'TideFont',
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: loading
+                                ? null
+                                : () {
+                                    loadStarted = false;
+                                    load();
+                                  },
+                            icon: const Icon(Icons.refresh_rounded, size: 17),
+                            label: const Text('刷新'),
                           ),
-                        ),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: loading
-                              ? null
-                              : () {
-                                  loadStarted = false;
-                                  load();
-                                },
-                          icon: const Icon(Icons.refresh_rounded, size: 17),
-                          label: const Text('刷新'),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -3951,7 +3963,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
             p['url']?.toString().contains('dashscope.aliyuncs.com') == true);
     TideDialogs.show(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => TideAlertDialog(
+        kind: TideDialogKind.form,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         content: TideDialogs.glassContent(
@@ -4097,7 +4110,8 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     final name = collection[idx]['name'];
     TideDialogs.show(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => TideAlertDialog(
+        kind: TideDialogKind.confirm,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         content: TideDialogs.glassContent(

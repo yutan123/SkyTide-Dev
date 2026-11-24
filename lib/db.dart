@@ -1299,8 +1299,32 @@ class DBManager {
 
   Future<List<Map<String, dynamic>>> queryPlugins() async =>
       (await database).query('plugins', orderBy: 'updated_at DESC');
-  Future<void> savePlugin(Map<String, dynamic> plugin) async => (await database)
-      .insert('plugins', plugin, conflictAlgorithm: ConflictAlgorithm.replace);
+  Future<void> savePlugin(
+    Map<String, dynamic> plugin, {
+    String? marketSource,
+  }) async {
+    final db = await database;
+    await db.transaction((txn) async {
+      final id = plugin['id'];
+      final updated = await txn.update(
+        'plugins',
+        plugin,
+        where: 'id = ?',
+        whereArgs: [id],
+      );
+      if (updated == 0) await txn.insert('plugins', plugin);
+      final key = 'plugin_market_source_$id';
+      if (marketSource == null) {
+        await txn.delete('kv_store', where: 'key = ?', whereArgs: [key]);
+      } else {
+        await txn.insert('kv_store', {
+          'key': key,
+          'value': marketSource,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    });
+  }
+
   Future<void> setPluginEnabled(
     String id,
     bool enabled, {

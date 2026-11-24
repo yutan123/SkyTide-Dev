@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'package:flutter/material.dart';
 import 'theme.dart';
 import 'voice_call_detail_page.dart';
@@ -52,12 +53,13 @@ class VoiceCallCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     final messageId = message['id']?.toString() ?? '';
-    final callId = message['call_id']?.toString() ??
+    final callId =
+        message['call_id']?.toString() ??
         (messageId.startsWith('card_') ? messageId.substring(5) : '');
     final status = message['call_status']?.toString() ?? 'ended';
     final duration =
         ((message['duration'] ?? message['call_duration']) as num?)?.toInt() ??
-            0;
+        0;
     final isUser = message['role'] == 'user';
 
     return GestureDetector(
@@ -68,76 +70,84 @@ class VoiceCallCard extends StatelessWidget {
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (_) => VoiceCallDetailPage(
-                callId: callId,
-                botName: botName,
-              ),
+              builder: (_) =>
+                  VoiceCallDetailPage(callId: callId, botName: botName),
             ),
           );
         }
       },
-      child: Container(
-        constraints: BoxConstraints(
-          maxWidth: MediaQuery.of(context).size.width * 0.62,
-        ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-        decoration: BoxDecoration(
-          color: isUser ? theme.surface : theme.bubbleAi,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: theme.primary.withValues(alpha: .22)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 30,
-              height: 30,
-              decoration: BoxDecoration(
-                color: theme.primary.withValues(alpha: .12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                _getStatusIcon(status),
-                size: 16,
-                color: status == 'ended' ? theme.primary : theme.textWeak,
-              ),
+      child: tideAppearanceSurface(
+        context,
+        'card.voiceCall',
+        Container(
+          constraints: BoxConstraints(
+            maxWidth: MediaQuery.of(context).size.width * 0.62,
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+          decoration: BoxDecoration(
+            color: (isUser ? theme.surface : theme.bubbleAi).withValues(
+              alpha: 1,
             ),
-            const SizedBox(width: 9),
-            Flexible(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _getStatusText(status),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: theme.textStrong,
-                      fontSize: 13,
-                      fontFamily: 'TideFont',
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (status == 'ended' && duration > 0)
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: theme.primary.withValues(alpha: .22)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: theme.primary.withValues(alpha: .12),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  _getStatusIcon(status),
+                  size: 16,
+                  color: status == 'ended' ? theme.primary : theme.textWeak,
+                ),
+              ),
+              const SizedBox(width: 9),
+              Flexible(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
                     Text(
-                      '时长 ${_formatDuration(duration)}',
+                      _getStatusText(status),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        color: theme.textWeak,
-                        fontSize: 11,
+                        color: theme.textStrong,
+                        fontSize: 13,
                         fontFamily: 'TideFont',
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                ],
+                    if (status == 'ended' && duration > 0)
+                      Text(
+                        '时长 ${_formatDuration(duration)}',
+                        style: TextStyle(
+                          color: theme.textWeak,
+                          fontSize: 11,
+                          fontFamily: 'TideFont',
+                        ),
+                      ),
+                  ],
+                ),
               ),
-            ),
-            if (callId.isNotEmpty) ...[
-              const SizedBox(width: 6),
-              Icon(Icons.chevron_right_rounded,
-                  size: 18, color: theme.textWeak),
+              if (callId.isNotEmpty) ...[
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.chevron_right_rounded,
+                  size: 18,
+                  color: theme.textWeak,
+                ),
+              ],
             ],
-          ],
+          ),
         ),
+        opaque: true,
       ),
     );
   }

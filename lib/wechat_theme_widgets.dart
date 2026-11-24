@@ -202,7 +202,9 @@ class WechatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
-    final color = isUser ? theme.wechatOutgoing : theme.surface;
+    final color = isUser
+        ? theme.wechatOutgoing
+        : theme.appearanceColor('bubbleAi') ?? theme.surface;
     return CustomPaint(
       painter: _WechatBubblePainter(color: color, isUser: isUser),
       child: Container(

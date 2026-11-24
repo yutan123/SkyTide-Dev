@@ -116,6 +116,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
           bottom: MediaQuery.viewInsetsOf(context).bottom,
         ),
         child: TideDialogSurface(
+          kind: TideDialogKind.form,
           title: Text(
             widget.title,
             style: TextStyle(
@@ -240,6 +241,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
     final index = await TideDialogs.show<int>(
       context: context,
       builder: (ctx) => TideDialogSurface(
+        kind: TideDialogKind.notice,
         title: Text(
           title,
           style: TextStyle(
@@ -683,6 +685,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
               )
               .toList();
           return TideDialogSurface(
+            kind: TideDialogKind.choice,
             title: Text(multiple ? '$title（已选 ${selected.length}）' : title),
             content: SizedBox(
               width: double.maxFinite,
@@ -920,6 +923,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
             final name = await TideDialogs.show<String>(
               context: context,
               builder: (ctx) => TideDialogSurface(
+                kind: TideDialogKind.form,
                 title: const Text('新建插件目录'),
                 content: TextField(
                   controller: input,
@@ -964,6 +968,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
         value = await TideDialogs.show<String>(
           context: context,
           builder: (ctx) => TideDialogSurface(
+            kind: TideDialogKind.choice,
             title: Text(field['title']?.toString() ?? key),
             content: SizedBox(
               width: 320,
@@ -998,6 +1003,7 @@ class _PluginConfigDialogState extends State<PluginConfigDialog> {
           context: context,
           builder: (ctx) => StatefulBuilder(
             builder: (ctx, refresh) => TideDialogSurface(
+              kind: TideDialogKind.choice,
               title: Text(field['title']?.toString() ?? key),
               content: Column(
                 mainAxisSize: MainAxisSize.min,

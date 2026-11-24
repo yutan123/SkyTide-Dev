@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'dart:io';
 import 'dart:math';
 import 'package:flutter/material.dart';
@@ -206,7 +207,97 @@ Future<T?> showTideDialog<T>({
 
 /// A consistent, app-owned dialog shell. It provides the inset and handles
 /// safe-area behavior while callers supply their own content.
+enum TideDialogKind { confirm, notice, choice, form, progress }
+
+/// Styles the physical Material dialog without changing its route or insets.
+class TideAlertDialog extends AlertDialog {
+  const TideAlertDialog({
+    super.key,
+    super.title,
+    super.content,
+    super.actions,
+    super.backgroundColor,
+    super.shape,
+    super.contentPadding,
+    super.titlePadding,
+    super.actionsPadding,
+    super.scrollable,
+    super.insetPadding,
+    super.clipBehavior,
+    super.titleTextStyle,
+    super.contentTextStyle,
+    this.kind = TideDialogKind.confirm,
+  });
+  final TideDialogKind kind;
+
+  @override
+  Widget build(BuildContext context) {
+    final original = super.build(context);
+    final target = 'dialog.${kind.name}';
+    if (content is TideDialogBody) {
+      return _DialogBodyTarget(target, child: original);
+    }
+    final style = TideTheme.of(context).appearanceSurface(target, 'normal');
+    if (style == null ||
+        style.isEmpty ||
+        original is! Dialog ||
+        original.child == null)
+      return original;
+    final resolvedShape = original.shape ?? DialogTheme.of(context).shape;
+    return Dialog(
+      backgroundColor: style.fill == null
+          ? original.backgroundColor
+          : Color(style.fill!),
+      elevation: original.elevation,
+      shadowColor: original.shadowColor,
+      surfaceTintColor: style.fill == null
+          ? original.surfaceTintColor
+          : Colors.transparent,
+      insetAnimationDuration: original.insetAnimationDuration,
+      insetAnimationCurve: original.insetAnimationCurve,
+      insetPadding: original.insetPadding,
+      clipBehavior: original.clipBehavior,
+      shape: original.shape,
+      alignment: original.alignment,
+      constraints: original.constraints,
+      semanticsRole: original.semanticsRole,
+      child: tideAppearanceSurface(
+        context,
+        target,
+        original.child!,
+        paintFill: false,
+        radius: resolvedShape is RoundedRectangleBorder
+            ? resolvedShape.borderRadius
+            : BorderRadius.circular(28),
+      ),
+    );
+  }
+}
+
+class _DialogBodyTarget extends InheritedWidget {
+  const _DialogBodyTarget(this.target, {required super.child});
+  final String target;
+
+  @override
+  bool updateShouldNotify(_DialogBodyTarget oldWidget) =>
+      target != oldWidget.target;
+}
+
+/// Marks a pre-decorated dialog body as the physical surface to style.
+class TideDialogBody extends StatelessWidget {
+  const TideDialogBody(this.content, {super.key});
+  final Widget content;
+  @override
+  Widget build(BuildContext context) => tideAppearanceSurface(
+    context,
+    context.dependOnInheritedWidgetOfExactType<_DialogBodyTarget>()?.target ??
+        'dialog',
+    content,
+  );
+}
+
 class TideDialogSurface extends StatelessWidget {
+  final TideDialogKind? kind;
   final Widget? child;
   final Widget? content;
   final Widget? title;
@@ -230,6 +321,7 @@ class TideDialogSurface extends StatelessWidget {
     this.backgroundColor,
     this.alignment = Alignment.center,
     this.maxHeightFactor,
+    this.kind,
   }) : assert(
          maxHeightFactor == null ||
              (maxHeightFactor > 0 && maxHeightFactor <= 1),
@@ -237,6 +329,7 @@ class TideDialogSurface extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final inner = content;
     final body =
         child ??
         Container(
@@ -251,7 +344,10 @@ class TideDialogSurface extends StatelessWidget {
             children: [
               if (title != null) title!,
               if (title != null && content != null) const SizedBox(height: 14),
-              if (content != null) Flexible(child: content!),
+              if (inner != null)
+                Flexible(
+                  child: inner is TideDialogBody ? inner.content : inner,
+                ),
               if (actions != null && actions!.isNotEmpty) ...[
                 const SizedBox(height: 14),
                 Row(
@@ -262,7 +358,18 @@ class TideDialogSurface extends StatelessWidget {
             ],
           ),
         );
-    final material = Material(type: MaterialType.transparency, child: body);
+    final target = kind == null ? 'dialog' : 'dialog.${kind!.name}';
+    final material = Material(
+      type: MaterialType.transparency,
+      child: tideAppearanceSurface(
+        context,
+        target,
+        body is TideDialogBody ? body.content : body,
+        radius: body is TideDialogBody || body is Container
+            ? null
+            : BorderRadius.circular(22),
+      ),
+    );
     final heightFactor = maxHeightFactor;
     return SafeArea(
       child: Align(
@@ -376,7 +483,7 @@ class TideDialogs {
         ),
       ),
     );
-    return content;
+    return TideDialogBody(content);
   }
 
   static Widget glassButton(
@@ -482,7 +589,11 @@ Future<T?> showTideSheet<T>({
                     ],
                   ),
                 );
-                return sheet;
+                return tideAppearanceSurface(
+                  sheetContext,
+                  'dialog.sheet',
+                  sheet,
+                );
               },
             ),
           ),
@@ -620,6 +731,7 @@ class _ParticleOverlayState extends State<ParticleOverlay>
 // ========== 毛玻璃卡片 ==========
 class GlassCard extends StatelessWidget {
   final Widget child;
+  final String appearanceTarget;
   final EdgeInsetsGeometry padding;
   final double radius;
   final VoidCallback? onTap;
@@ -628,6 +740,7 @@ class GlassCard extends StatelessWidget {
   const GlassCard({
     super.key,
     required this.child,
+    this.appearanceTarget = 'card.glass',
     this.padding = const EdgeInsets.all(16),
     this.radius = 20,
     this.onTap,
@@ -640,25 +753,30 @@ class GlassCard extends StatelessWidget {
     final content = GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
-      child: Container(
-        padding: padding,
-        decoration: BoxDecoration(
-          color: theme.isWechat
-              ? theme.surface
-              : theme.glass.withValues(alpha: 0.7),
-          borderRadius: BorderRadius.circular(theme.isWechat ? 5 : radius),
-          border: Border.all(color: TideTheme.of(context).border, width: 0.5),
-          boxShadow: theme.isWechat
-              ? []
-              : [
-                  BoxShadow(
-                    color: Colors.black.withValues(alpha: 0.03),
-                    blurRadius: 10,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
+      child: tideAppearanceSurface(
+        context,
+        appearanceTarget,
+        Container(
+          padding: padding,
+          decoration: BoxDecoration(
+            color: theme.isWechat
+                ? theme.surface
+                : theme.glass.withValues(alpha: 0.7),
+            borderRadius: BorderRadius.circular(theme.isWechat ? 5 : radius),
+            border: Border.all(color: TideTheme.of(context).border, width: 0.5),
+            boxShadow: theme.isWechat
+                ? []
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.03),
+                      blurRadius: 10,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+          ),
+          child: child,
         ),
-        child: child,
+        material: theme.isWechat ? 'normal' : 'frosted',
       ),
     );
     if (!liquid || !TideTheme.of(context).useLiquidGlass) return content;
@@ -667,7 +785,13 @@ class GlassCard extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         onLongPress: onLongPress,
-        child: Padding(padding: padding, child: child),
+        child: tideAppearanceSurface(
+          context,
+          appearanceTarget,
+          Padding(padding: padding, child: child),
+          material: 'liquid',
+          radius: BorderRadius.circular(radius),
+        ),
       ),
     );
   }
@@ -675,6 +799,7 @@ class GlassCard extends StatelessWidget {
 
 class FrostCard extends StatelessWidget {
   final Widget child;
+  final String appearanceTarget;
   final EdgeInsetsGeometry padding;
   final EdgeInsetsGeometry margin;
   final double radius;
@@ -686,6 +811,7 @@ class FrostCard extends StatelessWidget {
   const FrostCard({
     super.key,
     required this.child,
+    this.appearanceTarget = 'card.frost',
     this.padding = const EdgeInsets.all(16),
     this.margin = EdgeInsets.zero,
     this.radius = 20,
@@ -703,29 +829,37 @@ class FrostCard extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         onLongPress: onLongPress,
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: theme.isWechat
-                ? theme.surface
-                : transparent
-                ? Colors.transparent
-                : theme.useLiquidGlass
-                ? theme.glass.withValues(alpha: theme.isDark ? 0.36 : 0.48)
-                : theme.glass.withValues(alpha: 0.7),
-            borderRadius: BorderRadius.circular(theme.isWechat ? 5 : radius),
-            border: Border.all(color: TideTheme.of(context).border, width: 0.5),
-            boxShadow: theme.isWechat
-                ? []
-                : [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      blurRadius: 12,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
+        child: tideAppearanceSurface(
+          context,
+          appearanceTarget,
+          Container(
+            padding: padding,
+            decoration: BoxDecoration(
+              color: theme.isWechat
+                  ? theme.surface
+                  : transparent
+                  ? Colors.transparent
+                  : theme.useLiquidGlass
+                  ? theme.glass.withValues(alpha: theme.isDark ? 0.36 : 0.48)
+                  : theme.glass.withValues(alpha: 0.7),
+              borderRadius: BorderRadius.circular(theme.isWechat ? 5 : radius),
+              border: Border.all(
+                color: TideTheme.of(context).border,
+                width: 0.5,
+              ),
+              boxShadow: theme.isWechat
+                  ? []
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.04),
+                        blurRadius: 12,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+            ),
+            child: child,
           ),
-          child: child,
+          material: theme.isWechat ? 'normal' : 'frosted',
         ),
       ),
     );
@@ -738,7 +872,13 @@ class FrostCard extends StatelessWidget {
         child: GestureDetector(
           onTap: onTap,
           onLongPress: onLongPress,
-          child: Padding(padding: padding, child: child),
+          child: tideAppearanceSurface(
+            context,
+            appearanceTarget,
+            Padding(padding: padding, child: child),
+            material: 'liquid',
+            radius: BorderRadius.circular(radius),
+          ),
         ),
       ),
     );

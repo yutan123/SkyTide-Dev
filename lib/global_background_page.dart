@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'dart:io';
 import 'dart:async';
 
@@ -331,64 +332,76 @@ class _ControlSurface extends StatelessWidget {
     final shape = RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(16),
     );
-    return Material(
-      color: theme.surface.withValues(alpha: theme.isDark ? 0.94 : 0.92),
-      elevation: 10,
-      shadowColor: Colors.black.withValues(alpha: 0.28),
-      shape: shape,
-      child: Padding(
-        padding: const EdgeInsets.all(8),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: Icon(Icons.image_outlined, color: theme.primary),
-              title: Text(hasImage ? '替换图片' : '选择图片'),
-              onTap: onPick,
-            ),
-            if (hasImage)
+    return tideAppearanceSurface(
+      context,
+      'card.control',
+      Material(
+        color:
+            tideAppearanceFill(context, 'card.control') ??
+            theme.surface.withValues(alpha: theme.isDark ? 0.94 : 0.92),
+        elevation: 10,
+        shadowColor: Colors.black.withValues(alpha: 0.28),
+        shape: shape,
+        child: Padding(
+          padding: const EdgeInsets.all(8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               ListTile(
-                leading: const Icon(
-                  Icons.delete_outline_rounded,
-                  color: Color(0xFFFF3B30),
+                leading: Icon(Icons.image_outlined, color: theme.primary),
+                title: Text(hasImage ? '替换图片' : '选择图片'),
+                onTap: onPick,
+              ),
+              if (hasImage)
+                ListTile(
+                  leading: const Icon(
+                    Icons.delete_outline_rounded,
+                    color: Color(0xFFFF3B30),
+                  ),
+                  title: const Text('清除全局背景图'),
+                  onTap: onClear,
                 ),
-                title: const Text('清除全局背景图'),
-                onTap: onClear,
-              ),
-            if (hasImage)
-              SwitchListTile(
-                secondary: Icon(Icons.blur_on_rounded, color: theme.primary),
-                title: const Text('启用液态玻璃'),
-                subtitle: const Text('开启流光折射；关闭后保留常规卡片和按钮样式'),
-                value: enableLiquidGlass,
-                onChanged: onLiquidGlassChanged,
-              ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: Row(
-                children: [
-                  Icon(Icons.contrast_rounded, color: theme.primary, size: 20),
-                  Expanded(
-                    child: SliderTheme(
-                      data: SliderTheme.of(context).copyWith(
-                        activeTrackColor: theme.primary,
-                        thumbColor: theme.primary,
-                        overlayColor: theme.primary.withValues(alpha: 0.16),
-                      ),
-                      child: Slider(
-                        value: opacity,
-                        min: .18,
-                        max: .70,
-                        onChanged: onOpacityChanged,
+              if (hasImage)
+                SwitchListTile(
+                  secondary: Icon(Icons.blur_on_rounded, color: theme.primary),
+                  title: const Text('启用液态玻璃'),
+                  subtitle: const Text('开启流光折射；关闭后保留常规卡片和按钮样式'),
+                  value: enableLiquidGlass,
+                  onChanged: onLiquidGlassChanged,
+                ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.contrast_rounded,
+                      color: theme.primary,
+                      size: 20,
+                    ),
+                    Expanded(
+                      child: SliderTheme(
+                        data: SliderTheme.of(context).copyWith(
+                          activeTrackColor: theme.primary,
+                          thumbColor: theme.primary,
+                          overlayColor: theme.primary.withValues(alpha: 0.16),
+                        ),
+                        child: Slider(
+                          value: opacity,
+                          min: .18,
+                          max: .70,
+                          onChanged: onOpacityChanged,
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
+      radius: BorderRadius.circular(16),
+      paintFill: false,
     );
   }
 }

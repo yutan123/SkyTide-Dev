@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'android_selection_menu.dart';
 import 'dart:async';
 import 'dart:math';
@@ -177,36 +178,47 @@ List<Map<String, dynamic>> metricPoints(Map<String, dynamic> s, int index,
 class _VitalDataCard extends StatelessWidget {
   const _VitalDataCard({
     required this.child,
+    this.appearanceTarget = 'card.metrics',
     this.padding = const EdgeInsets.all(16),
   });
 
   final Widget child;
+  final String appearanceTarget;
   final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     if (!theme.useLiquidGlass) {
-      return FrostCard(padding: padding, child: child);
+      return FrostCard(
+        appearanceTarget: appearanceTarget,
+        padding: padding,
+        child: child,
+      );
     }
-    return Container(
-      padding: padding,
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: Colors.white.withValues(alpha: 0.2),
-          width: 1.5,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+    return tideAppearanceSurface(
+      context,
+      appearanceTarget,
+      Container(
+        padding: padding,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.15),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.2),
+            width: 1.5,
           ),
-        ],
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.1),
+              blurRadius: 10,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: child,
       ),
-      child: child,
+      material: 'liquid',
     );
   }
 }
@@ -1121,10 +1133,16 @@ class _VitalDetailPageState extends State<VitalDetailPage> {
   }
 
   Widget _buildEditableBodyCard(
-          TideTheme theme, BuildContext dialogContext, StateSetter refresh) =>
-      _VitalDataCard(
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Row(children: [
+    TideTheme theme,
+    BuildContext dialogContext,
+    StateSetter refresh,
+  ) => _VitalDataCard(
+    appearanceTarget: 'dialog.form',
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
             Expanded(child: text('身体指标', size: 18)),
             IconButton(
                 tooltip: '取消',

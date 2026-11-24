@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:quickjs_engine/quickjs_engine.dart';
 import 'package:quickjs_engine/quickjs/ffi.dart' as qjs;
 
+import 'plugin_launch_drawing.dart' show pluginLaunchScriptSdk;
 import 'plugin_transport.dart';
 import 'plugin_process_transport.dart';
 import 'plugin_process_channel.dart';
@@ -53,6 +54,8 @@ void pluginWorker(List<dynamic> initial) {
   final parent = initial[0] as SendPort;
   final commands = ReceivePort();
   QuickJsRuntime2? engine;
+  final launchAnimation = initial[1] == pluginLaunchScriptSdk;
+  int? expectedLaunchResult;
 
   void fatal(Object error) {
     commands.close();
@@ -107,27 +110,48 @@ void pluginWorker(List<dynamic> initial) {
       throw StateError('插件微任务队列超过限制');
     }
 
-    void evaluate(String code) {
-      _deadline = _clock.elapsedMilliseconds + 1000;
+    void evaluate(String code, {int budget = 1000}) {
+      _deadline = _clock.elapsedMilliseconds + budget;
       final result = runtime.evaluate(code);
       if (result.isError) throw StateError(result.stringResult);
     }
 
-    runtime.onMessage('tide.host', (dynamic data) {
-      if (data is! Map ||
-          data['id'] is! int ||
-          data['method'] is! String ||
-          data['args'] is! Map)
-        throw const FormatException('宿主请求格式无效');
-      if (jsonEncode(data).length > 1024 * 1024) throw StateError('宿主请求过大');
-      parent.send({'type': 'host', 'data': data});
-      return null;
-    });
+    if (!launchAnimation) {
+      runtime.onMessage('tide.host', (dynamic data) {
+        if (data is! Map ||
+            data['id'] is! int ||
+            data['method'] is! String ||
+            data['args'] is! Map) {
+          throw const FormatException('宿主请求格式无效');
+        }
+        if (jsonEncode(data).length > 1024 * 1024) throw StateError('宿主请求过大');
+        parent.send({'type': 'host', 'data': data});
+        return null;
+      });
+    }
     runtime.onMessage('tide.result', (dynamic data) {
       if (data is! Map ||
           data['id'] is! int ||
           (data['error'] != null && data['error'] is! String))
         throw const FormatException('插件结果格式无效');
+      if (launchAnimation) {
+        if (expectedLaunchResult == null ||
+            data['id'] != expectedLaunchResult) {
+          return null;
+        }
+        expectedLaunchResult = null;
+        final value = data['value'];
+        final valid =
+            data['error'] == null && value is String && value.length <= 65536;
+        parent.send({
+          'type': 'result',
+          'data': {
+            'id': data['id'],
+            if (valid) 'value': value else 'error': '启动动画帧无效',
+          },
+        });
+        return null;
+      }
       if (jsonEncode(data).length > 1024 * 1024) throw StateError('插件结果过大');
       parent.send({'type': 'result', 'data': data});
       return null;
@@ -139,8 +163,8 @@ void pluginWorker(List<dynamic> initial) {
     );
     evaluate('globalThis.__tideConfig = ${jsonEncode(initial[3])};');
     evaluate(initial[1] as String);
-    evaluate(initial[2] as String);
-    jobs();
+    evaluate(initial[2] as String, budget: launchAnimation ? 250 : 1000);
+    if (!launchAnimation) jobs();
     parent.send({'type': 'ready'});
     commands.listen((dynamic message) {
       try {
@@ -148,6 +172,21 @@ void pluginWorker(List<dynamic> initial) {
           commands.close();
           engine = null;
           runtime.dispose();
+          return;
+        }
+        if (launchAnimation) {
+          if (message['kind'] != 'launchFrame' || message['id'] is! int) {
+            throw StateError('无效的启动动画请求');
+          }
+          expectedLaunchResult = message['id'] as int;
+          try {
+            evaluate(
+              '__tideDispatch(${jsonEncode(message['id'])}, "launchFrame", "draw", ${jsonEncode(jsonEncode(message['payload']))});',
+              budget: 50,
+            );
+          } finally {
+            expectedLaunchResult = null;
+          }
           return;
         }
         if (message.containsKey('resolve')) {

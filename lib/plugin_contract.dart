@@ -44,8 +44,11 @@ class PluginContract {
     'database',
     'database.vector',
     'commands',
+    'chat.messageActions',
     'events.priority',
+    'appearance.interfaceTheme',
     'appearance.launchAnimation',
+    'appearance.launchAnimation.script',
     'ai',
   };
   static const hooks = {

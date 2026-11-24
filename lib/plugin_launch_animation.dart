@@ -8,7 +8,9 @@ import 'package:path/path.dart' as p;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:video_player/video_player.dart';
 
+import 'plugin_launch_drawing.dart';
 import 'plugin_launch_spec.dart';
+import 'plugin_runtime.dart';
 import 'plugin_system.dart';
 import 'theme.dart';
 
@@ -37,6 +39,10 @@ class _PluginLaunchAnimationState extends State<PluginLaunchAnimation>
   VideoPlayerController? _video;
   ui.Codec? _codec;
   ui.Image? _image;
+  final _scriptFrames = ValueNotifier<ui.Picture?>(null);
+  PluginRuntime? _scriptRuntime;
+  final _sprites = <String, ui.Image>{};
+  final _scriptClock = Stopwatch();
   late BoxFit _fit;
   String? _historyKey;
   SharedPreferencesAsync? _preferences;
@@ -84,23 +90,159 @@ class _PluginLaunchAnimationState extends State<PluginLaunchAnimation>
       ))
         return _finish();
       final root = await pack.directory.resolveSymbolicLinks();
-      final resolved = await File(
-        p.join(root, spec.asset),
-      ).resolveSymbolicLinks();
-      if (!p.isWithin(root, resolved)) return _finish();
-      final file = File(resolved);
-      final stat = await file.stat();
       if (!_active) return;
-      if (stat.type != FileSystemEntityType.file ||
-          stat.size < 1 ||
-          stat.size > spec.byteLimit) {
-        return _finish();
+      if (spec.isScript) {
+        await _startScript(spec, root, pack.id);
+        return;
       }
+      final file = await _packageFile(root, spec.asset!, spec.byteLimit);
+      if (!_active) return;
       if (spec.isVideo) {
         await _startVideo(file);
       } else {
         await _startImage(file);
       }
+    } catch (_) {
+      _finish();
+    }
+  }
+
+  static Future<File> _packageFile(String root, String path, int limit) async {
+    final resolved = await File(p.join(root, path)).resolveSymbolicLinks();
+    if (!p.isWithin(root, resolved)) throw const FormatException('素材不在插件包内');
+    final file = File(resolved);
+    final info = await file.stat();
+    if (info.type != FileSystemEntityType.file ||
+        info.size < 1 ||
+        info.size > limit) {
+      throw const FormatException('启动动画文件为空或大小无效');
+    }
+    return file;
+  }
+
+  Future<void> _startScript(
+    PluginLaunchSpec spec,
+    String root,
+    String id,
+  ) async {
+    final file = await _packageFile(
+      root,
+      spec.script!,
+      PluginLaunchSpec.scriptLimit,
+    );
+    if (!_active) return;
+    final code = await file.readAsString();
+    if (!_active) return;
+    final runtime = PluginRuntime(
+      (method, args) async => throw UnsupportedError('启动动画不允许宿主请求'),
+      pluginId: id,
+      onClosed: _finish,
+    );
+    _scriptRuntime = runtime;
+    await Future.wait<void>([
+      runtime.start(pluginLaunchScriptSdk, code, const {}),
+      _loadSprites(spec, root),
+    ], eagerError: true);
+    if (!_active) return;
+    await _drawScriptFrame(runtime, spec.durationMs!);
+  }
+
+  Future<void> _loadSprites(PluginLaunchSpec spec, String root) async {
+    var pixels = 0;
+    var encodedBytes = 0;
+    for (final entry in spec.images.entries) {
+      if (!_active) return;
+      final file = await _packageFile(
+        root,
+        entry.value,
+        PluginLaunchSpec.spriteLimit,
+      );
+      if (!_active) return;
+      final data = await file.readAsBytes();
+      if (!_active) return;
+      encodedBytes += data.length;
+      if (data.length > PluginLaunchSpec.spriteLimit ||
+          encodedBytes > PluginLaunchSpec.spriteTotalLimit) {
+        throw const FormatException('脚本动画图片超出大小限制');
+      }
+      PluginLaunchSpec.validateSprite(entry.value, data);
+      final buffer = await ui.ImmutableBuffer.fromUint8List(data);
+      try {
+        if (!_active) return;
+        final descriptor = await ui.ImageDescriptor.encoded(buffer);
+        try {
+          if (!_active) return;
+          pixels += descriptor.width * descriptor.height;
+          if (descriptor.width > 2048 ||
+              descriptor.height > 2048 ||
+              pixels > _maxPixels) {
+            throw const FormatException('脚本动画图片解码尺寸超出限制');
+          }
+          final codec = await descriptor.instantiateCodec();
+          try {
+            if (!_active) return;
+            if (codec.frameCount != 1)
+              throw const FormatException('脚本动画素材必须是静态图片');
+            final frame = await codec.getNextFrame();
+            if (!_active) {
+              frame.image.dispose();
+              return;
+            }
+            _sprites[entry.key] = frame.image;
+          } finally {
+            codec.dispose();
+          }
+        } finally {
+          descriptor.dispose();
+        }
+      } finally {
+        buffer.dispose();
+      }
+    }
+  }
+
+  Future<void> _drawScriptFrame(PluginRuntime runtime, int durationMs) async {
+    if (!_active) return;
+    final timeMs = _scriptClock.elapsedMilliseconds;
+    if (timeMs >= durationMs || MediaQuery.disableAnimationsOf(context))
+      return _finish();
+    final size = context.size;
+    if (size == null || size.isEmpty || !size.isFinite) return _finish();
+    try {
+      final frame = await runtime
+          .call('launchFrame', 'draw', {
+            'width': size.width,
+            'height': size.height,
+            'timeMs': timeMs,
+            'durationMs': durationMs,
+            'progress': timeMs / durationMs,
+            'dark': TideTheme.of(context).isDark,
+            'images': {
+              for (final entry in _sprites.entries)
+                entry.key: {
+                  'width': entry.value.width,
+                  'height': entry.value.height,
+                },
+            },
+          })
+          .timeout(const Duration(milliseconds: 120));
+      if (!_active) return;
+      final picture = recordPluginLaunchFrame(frame, size, _sprites);
+      if (!_visible) {
+        _scriptClock.start();
+        _arm(Duration(milliseconds: durationMs));
+      }
+      final previous = _scriptFrames.value;
+      _scriptFrames.value = picture;
+      previous?.dispose();
+      _reveal();
+      final next = (33 + timeMs - _scriptClock.elapsedMilliseconds).clamp(
+        0,
+        33,
+      );
+      _frameTimer = Timer(Duration(milliseconds: next), () {
+        unawaited(_drawScriptFrame(runtime, durationMs));
+      });
     } catch (_) {
       _finish();
     }
@@ -221,7 +363,19 @@ class _PluginLaunchAnimationState extends State<PluginLaunchAnimation>
   }
 
   void _release() {
+    if (_closed) return;
     _closed = true;
+    _scriptClock.stop();
+    final runtime = _scriptRuntime;
+    _scriptRuntime = null;
+    runtime?.close();
+    final picture = _scriptFrames.value;
+    _scriptFrames.value = null;
+    picture?.dispose();
+    for (final image in _sprites.values) {
+      image.dispose();
+    }
+    _sprites.clear();
     _watchdog?.cancel();
     _frameTimer?.cancel();
     final controller = _video;
@@ -245,6 +399,7 @@ class _PluginLaunchAnimationState extends State<PluginLaunchAnimation>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _release();
+    _scriptFrames.dispose();
     super.dispose();
   }
 
@@ -263,7 +418,14 @@ class _PluginLaunchAnimationState extends State<PluginLaunchAnimation>
             child: ColoredBox(
               color: Colors.black,
               child: ClipRect(
-                child: _image != null
+                child: _scriptRuntime != null
+                    ? RepaintBoundary(
+                        child: CustomPaint(
+                          painter: PluginLaunchFramePainter(_scriptFrames),
+                          child: const SizedBox.expand(),
+                        ),
+                      )
+                    : _image != null
                     ? RawImage(image: _image, fit: _fit)
                     : FittedBox(
                         fit: _fit,

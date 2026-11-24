@@ -7,6 +7,7 @@ import 'db.dart';
 import 'plugin_archive.dart';
 import 'plugin_operation.dart';
 import 'plugin_market_routes.dart';
+import 'plugin_market_version.dart';
 
 class MarketPlugin {
   final String id,
@@ -17,9 +18,12 @@ class MarketPlugin {
       version,
       commit,
       changelog;
-  final String? icon;
+  final String? icon, minSkyTideVersion;
   MarketPlugin(Map<String, dynamic> json)
-    : id = PluginArchive.marketId(json['id'] as String),
+    : minSkyTideVersion = PluginMarketVersion.minimum(
+        json['minSkyTideVersion'],
+      ),
+      id = PluginArchive.marketId(json['id'] as String),
       name = json['name'] as String,
       author = json['author'] as String,
       description = json['description'] as String,
@@ -41,6 +45,12 @@ class MarketPlugin {
       throw const FormatException('市场插件信息无效');
     }
   }
+  String get sourceRecord => jsonEncode({
+    'repository': repository,
+    'commit': commit,
+    'version': version,
+  });
+
   Uri get archiveUrl => Uri.parse('$repository/archive/$commit.zip');
   Uri? get iconUrl {
     final path = icon;
@@ -192,14 +202,6 @@ class PluginMarket extends ChangeNotifier {
     }
   }
 
-  Future<void> saveSource(MarketPlugin plugin) => DBManager().setKV(
-    'plugin_market_source_${plugin.id}',
-    jsonEncode({
-      'repository': plugin.repository,
-      'commit': plugin.commit,
-      'version': plugin.version,
-    }),
-  );
   Future<void> clearSource(String id) =>
       DBManager().setKV('plugin_market_source_$id', '');
 

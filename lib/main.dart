@@ -1,3 +1,5 @@
+import 'plugin_system.dart';
+import 'plugin_interface_theme.dart';
 import 'coalesced_refresh.dart';
 import 'telegram_theme_widgets.dart';
 import 'auto_backup_service.dart';
@@ -855,6 +857,13 @@ class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
   Future<void> _restoreStartupAppearance() =>
       _runStartupTask('theme', () async {
         await tideTheme.loadFromDB();
+        if (mounted) {
+          _appearanceChanges ??= PluginSystem.instance.interfaceThemeChanges
+              .listen((_) {
+                unawaited(_loadPluginAppearance());
+              });
+          await _loadPluginAppearance();
+        }
         if (mounted) await tideTheme.precacheGlobalBackground(context);
       });
 
@@ -875,6 +884,7 @@ class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    unawaited(_appearanceChanges?.cancel());
     unawaited(_otaNetworkSubscription?.cancel());
     InternetReachabilityMonitor.instance.setForeground(false);
     WidgetsBinding.instance.removeObserver(this);
@@ -896,6 +906,24 @@ class _SkyTideAppState extends State<SkyTideApp> with WidgetsBindingObserver {
   }
 
   // 跟随系统日夜变化：手动覆盖后系统变化也触发重取色(不影响手动模式)
+  StreamSubscription<void>? _appearanceChanges;
+  int _appearanceRequest = 0;
+
+  Future<void> _loadPluginAppearance() async {
+    final request = ++_appearanceRequest;
+    try {
+      final pack = await PluginSystem.instance.interfaceThemePackage();
+      if (!mounted || request != _appearanceRequest) return;
+      tideTheme.setPluginAppearance(
+        pack == null ? null : PluginInterfaceTheme.fromManifest(pack.manifest),
+        pack?.directory.path,
+        pack?.manifest['_installedPackage']?.toString(),
+      );
+    } catch (error) {
+      debugPrint('[appearance] $error');
+    }
+  }
+
   @override
   void didChangePlatformBrightness() {
     tideTheme.applySystemBrightness();
@@ -1391,7 +1419,7 @@ class _TideMainScaffoldState extends State<TideMainScaffold>
     final authorize = await TideDialogs.show<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
+        builder: (context, setDialogState) => TideAlertDialog(
           backgroundColor: Colors.transparent,
           contentPadding: EdgeInsets.zero,
           content: TideDialogs.glassContent(

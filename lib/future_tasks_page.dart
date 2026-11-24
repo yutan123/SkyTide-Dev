@@ -5,6 +5,7 @@ import 'future_task_scheduler.dart';
 import 'future_task_button.dart';
 import 'global_notice.dart';
 import 'theme.dart';
+import 'tide_appearance_surface.dart';
 import 'ui_components.dart';
 
 int _taskInt(dynamic value) =>
@@ -140,21 +141,29 @@ class _FutureTasksPageState extends State<FutureTasksPage>
     }
   }
 
-  Widget _surface(TideTheme theme, Widget child) => Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-            color: theme.surface,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-                color: theme.border.withValues(alpha: .16), width: .5)),
-        child: AnimatedSize(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 240),
-            curve: Curves.easeOutCubic,
-            alignment: Alignment.topCenter,
-            child: child),
-      );
+  Widget _surface(TideTheme theme, Widget child) => tideAppearanceSurface(
+    context,
+    'card',
+    Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: theme.border.withValues(alpha: .16),
+          width: .5,
+        ),
+      ),
+      child: AnimatedSize(
+        duration: MediaQuery.disableAnimationsOf(context)
+            ? Duration.zero
+            : const Duration(milliseconds: 240),
+        curve: Curves.easeOutCubic,
+        alignment: Alignment.topCenter,
+        child: child,
+      ),
+    ),
+  );
 
   Widget _card(TideTheme theme, Map<String, dynamic> task) {
     final time = _taskTime(task);

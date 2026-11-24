@@ -339,7 +339,11 @@ class QqBubble extends StatelessWidget {
     constraints: const BoxConstraints(minHeight: 40),
     padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
     decoration: BoxDecoration(
-      color: isUser ? qqBlue : TideTheme.of(context).surface,
+      color:
+          TideTheme.of(
+            context,
+          ).appearanceColor(isUser ? 'bubbleUser' : 'bubbleAi') ??
+          (isUser ? qqBlue : TideTheme.of(context).surface),
       borderRadius: BorderRadius.circular(10),
     ),
     child: child,

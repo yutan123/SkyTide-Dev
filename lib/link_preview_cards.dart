@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'platform_share_cover.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -30,104 +31,110 @@ class WebLinkCard extends StatelessWidget {
 
     return GestureDetector(
       onTap: _openInBrowser,
-      child: Container(
-        constraints: BoxConstraints(maxWidth: maxWidth),
-        margin: const EdgeInsets.only(bottom: 8),
-        decoration: BoxDecoration(
-          color: theme.surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: theme.border, width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: theme.isDark ? 0.3 : 0.08),
-              blurRadius: 12,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              // 左侧文字区域
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Icon(
-                          Icons.link_rounded,
-                          size: 15,
-                          color: theme.primary,
-                        ),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            _extractDomain(data.url),
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: theme.textWeak,
-                              fontFamily: 'TideFont',
-                            ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+      child: tideAppearanceSurface(
+        context,
+        'card.link',
+        Container(
+          constraints: BoxConstraints(maxWidth: maxWidth),
+          margin: const EdgeInsets.only(bottom: 8),
+          decoration: BoxDecoration(
+            color: theme.surface,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: theme.border, width: 1),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(
+                  alpha: theme.isDark ? 0.3 : 0.08,
+                ),
+                blurRadius: 12,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // 左侧文字区域
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.link_rounded,
+                            size: 15,
+                            color: theme.primary,
                           ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      data.title,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: theme.textStrong,
-                        fontFamily: 'TideFont',
-                        height: 1.3,
+                          const SizedBox(width: 6),
+                          Flexible(
+                            child: Text(
+                              _extractDomain(data.url),
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: theme.textWeak,
+                                fontFamily: 'TideFont',
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
                       ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    if (data.description.isNotEmpty) ...[
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 8),
                       Text(
-                        data.description,
+                        data.title,
                         style: TextStyle(
-                          fontSize: 12,
-                          color: theme.textWeak,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: theme.textStrong,
                           fontFamily: 'TideFont',
-                          height: 1.4,
+                          height: 1.3,
                         ),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ],
-                ),
-              ),
-              const SizedBox(width: 12),
-              // 右侧图标/图片区域
-              Container(
-                width: 68,
-                height: 68,
-                decoration: BoxDecoration(
-                  color: theme.surfaceVariant,
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: data.imageUrl != null && data.imageUrl!.isNotEmpty
-                    ? ClipRRect(
-                        borderRadius: BorderRadius.circular(14),
-                        child: _WebPreviewThumbnail(
-                          key: ValueKey(data.imageUrl),
-                          data: data,
-                          placeholder: _defaultIcon(theme),
+                      if (data.description.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          data.description,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.textWeak,
+                            fontFamily: 'TideFont',
+                            height: 1.4,
+                          ),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      )
-                    : _defaultIcon(theme),
-              ),
-            ],
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                // 右侧图标/图片区域
+                Container(
+                  width: 68,
+                  height: 68,
+                  decoration: BoxDecoration(
+                    color: theme.surfaceVariant,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: data.imageUrl != null && data.imageUrl!.isNotEmpty
+                      ? ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: _WebPreviewThumbnail(
+                            key: ValueKey(data.imageUrl),
+                            data: data,
+                            placeholder: _defaultIcon(theme),
+                          ),
+                        )
+                      : _defaultIcon(theme),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -218,87 +225,91 @@ class VideoShareCard extends StatelessWidget {
       label: '在${info.name}打开：${data.title}',
       child: GestureDetector(
         onTap: () => _launchVideo(data.url),
-        child: Container(
-          width: width,
-          margin: const EdgeInsets.only(bottom: 8),
-          decoration: BoxDecoration(
-            color: theme.surface,
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: theme.border),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              AspectRatio(
-                aspectRatio: 16 / 9,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    PlatformShareCover(
-                      data: data,
-                      placeholder: _placeholderCover(theme, info),
-                    ),
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.36),
-                          shape: BoxShape.circle,
-                          border: Border.all(color: Colors.white54),
-                        ),
-                        child: const Icon(
-                          Icons.open_in_new_rounded,
-                          size: 20,
-                          color: Colors.white,
-                        ),
+        child: tideAppearanceSurface(
+          context,
+          'card.link',
+          Container(
+            width: width,
+            margin: const EdgeInsets.only(bottom: 8),
+            decoration: BoxDecoration(
+              color: theme.surface,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.border),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      PlatformShareCover(
+                        data: data,
+                        placeholder: _placeholderCover(theme, info),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      data.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: theme.textStrong,
-                        fontFamily: 'TideFont',
-                        height: 1.3,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        _getPlatformIcon(info, size: 14),
-                        const SizedBox(width: 5),
-                        Expanded(
-                          child: Text(
-                            info.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: theme.textWeak,
-                              fontFamily: 'TideFont',
-                            ),
+                      Center(
+                        child: Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.36),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white54),
+                          ),
+                          child: const Icon(
+                            Icons.open_in_new_rounded,
+                            size: 20,
+                            color: Colors.white,
                           ),
                         ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        data.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: theme.textStrong,
+                          fontFamily: 'TideFont',
+                          height: 1.3,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          _getPlatformIcon(info, size: 14),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              info.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: theme.textWeak,
+                                fontFamily: 'TideFont',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

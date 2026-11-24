@@ -219,6 +219,7 @@ class _TelegramAttachmentSheetState extends State<TelegramAttachmentSheet>
       ),
       child: TelegramGlass(
         radius: 30,
+        appearanceTarget: 'dialog.sheet',
         child: Material(
           color: Colors.transparent,
           child: SizedBox(

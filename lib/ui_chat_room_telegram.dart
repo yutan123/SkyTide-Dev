@@ -31,61 +31,67 @@ extension _TelegramChat on _ChatRoomPageState {
             Expanded(
               child: TelegramGlass(
                 fillOpacity: theme.isDark ? .48 : .52,
-                child: SizedBox(
-                  height: 48,
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Positioned(
-                        left: 3,
-                        child: SkyTideAvatar(
-                          name: _bot['name']?.toString() ?? '',
-                          path: _bot['avatar']?.toString(),
-                          size: 42,
-                          radius: 21,
+                child: tideAppearanceSurface(
+                  context,
+                  'chat.header',
+                  SizedBox(
+                    height: 48,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        Positioned(
+                          left: 3,
+                          child: SkyTideAvatar(
+                            name: _bot['name']?.toString() ?? '',
+                            path: _bot['avatar']?.toString(),
+                            size: 42,
+                            radius: 21,
+                          ),
                         ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 48),
-                        child: Stack(
-                          alignment: Alignment.center,
-                          children: [
-                            AnimatedAlign(
-                              duration: const Duration(milliseconds: 260),
-                              curve: Curves.easeOutCubic,
-                              alignment: _typing
-                                  ? const Alignment(0, -.55)
-                                  : Alignment.center,
-                              child: Text(
-                                _bot['name']?.toString() ?? '',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
-                                  color: theme.textStrong,
-                                ),
-                              ),
-                            ),
-                            Align(
-                              alignment: const Alignment(0, .72),
-                              child: AnimatedOpacity(
-                                duration: const Duration(milliseconds: 180),
-                                opacity: _typing ? 1 : 0,
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 48),
+                          child: Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              AnimatedAlign(
+                                duration: const Duration(milliseconds: 260),
+                                curve: Curves.easeOutCubic,
+                                alignment: _typing
+                                    ? const Alignment(0, -.55)
+                                    : Alignment.center,
                                 child: Text(
-                                  '正在输入中…',
+                                  _bot['name']?.toString() ?? '',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: TextStyle(
-                                    fontSize: 10,
-                                    color: theme.primary,
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                    color: theme.textStrong,
                                   ),
                                 ),
                               ),
-                            ),
-                          ],
+                              Align(
+                                alignment: const Alignment(0, .72),
+                                child: AnimatedOpacity(
+                                  duration: const Duration(milliseconds: 180),
+                                  opacity: _typing ? 1 : 0,
+                                  child: Text(
+                                    '正在输入中…',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: theme.primary,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
+                  material: 'frosted',
+                  radius: BorderRadius.circular(24),
                 ),
               ),
             ),
@@ -188,6 +194,8 @@ extension _TelegramChat on _ChatRoomPageState {
     final anchor =
         _messageKeys[anchorMessageId ?? msg['id']?.toString()]?.currentContext;
     if (anchor == null) return;
+    final actions = await _pluginMessageActions(msg);
+    if (!mounted || !anchor.mounted) return;
     final action = await showTelegramMenu<String>(
       context: anchor,
       preferAbove: true,
@@ -200,6 +208,12 @@ extension _TelegramChat on _ChatRoomPageState {
             label: '复制',
             onTap: () => Navigator.pop(ctx, 'copy'),
           ),
+          if (actions.isNotEmpty)
+            TelegramMenuItem(
+              icon: Icons.extension_outlined,
+              label: '插件操作',
+              onTap: () => Navigator.pop(ctx, 'plugin'),
+            ),
           TelegramMenuItem(
             icon: Icons.delete_outline_rounded,
             label: '删除',
@@ -214,6 +228,7 @@ extension _TelegramChat on _ChatRoomPageState {
       await Clipboard.setData(
         ClipboardData(text: msg['content']?.toString() ?? ''),
       );
+    if (action == 'plugin') await _choosePluginMessageAction(msg, actions);
     if (action == 'delete') {
       try {
         await DBManager().deleteMessage(msg['id'].toString());
@@ -243,101 +258,111 @@ extension _TelegramChat on _ChatRoomPageState {
         padding: const EdgeInsets.fromLTRB(8, 5, 8, 8),
         child: TelegramGlass(
           radius: 32,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
-                _attachmentPreview(theme),
-              if (_pendingExpression != null) _pendingExpressionPreview(theme),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  IconButton(
-                    tooltip: _showEmojiPanel ? '键盘' : '表情',
-                    icon: Icon(
-                      _showEmojiPanel
-                          ? Icons.keyboard_outlined
-                          : Icons.sentiment_satisfied_alt_outlined,
-                      size: 27,
-                      color: theme.textWeak,
-                    ),
-                    onPressed: () {
-                      if (_showEmojiPanel) {
-                        _setEmojiPanel(false);
-                        _inputFocus.requestFocus();
-                      } else {
-                        _toggleEmojiPanel();
-                      }
-                    },
-                  ),
-                  Expanded(
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 136),
-                      child: TextField(
-                        controller: _msgC,
-                        focusNode: _inputFocus,
-                        contextMenuBuilder: androidTextContextMenu,
-                        minLines: 1,
-                        maxLines: 5,
-                        style: TextStyle(
-                          fontFamily: 'TideFont',
-                          fontSize: 16,
-                          color: theme.textStrong,
-                        ),
-                        decoration: InputDecoration(
-                          hintText: _isRecording ? '录音中 $_recSecs 秒…' : '输入消息',
-                          hintStyle: TextStyle(color: theme.textWeak),
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 13,
-                          ),
-                        ),
-                        onSubmitted: (_) => _sendFromComposer(),
+          child: tideAppearanceSurface(
+            context,
+            'chat.input',
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
+                  _attachmentPreview(theme),
+                if (_pendingExpression != null)
+                  _pendingExpressionPreview(theme),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    IconButton(
+                      tooltip: _showEmojiPanel ? '键盘' : '表情',
+                      icon: Icon(
+                        _showEmojiPanel
+                            ? Icons.keyboard_outlined
+                            : Icons.sentiment_satisfied_alt_outlined,
+                        size: 27,
+                        color: theme.textWeak,
                       ),
+                      onPressed: () {
+                        if (_showEmojiPanel) {
+                          _setEmojiPanel(false);
+                          _inputFocus.requestFocus();
+                        } else {
+                          _toggleEmojiPanel();
+                        }
+                      },
                     ),
-                  ),
-                  IconButton(
-                    tooltip: '添加附件',
-                    onPressed: _telegramAttachments,
-                    icon: Icon(
-                      Icons.attach_file_rounded,
-                      size: 27,
-                      color: theme.textWeak,
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.all(3),
-                    child: SizedBox(
-                      width: 44,
-                      height: 44,
-                      child: Material(
-                        color: telegramGreen,
-                        shape: const CircleBorder(),
-                        child: InkWell(
-                          customBorder: const CircleBorder(),
-                          onTap: hasContent
-                              ? (_loading ? null : _sendFromComposer)
-                              : ((!_isRecording && _sendVoiceCooldown.isBlocked)
-                                    ? null
-                                    : _toggleRec),
-                          child: Icon(
-                            hasContent
-                                ? Icons.arrow_upward_rounded
-                                : (_isRecording
-                                      ? Icons.stop_rounded
-                                      : Icons.mic_none_rounded),
-                            color: Colors.white,
-                            size: 28,
+                    Expanded(
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 136),
+                        child: TextField(
+                          controller: _msgC,
+                          focusNode: _inputFocus,
+                          contextMenuBuilder: androidTextContextMenu,
+                          minLines: 1,
+                          maxLines: 5,
+                          style: TextStyle(
+                            fontFamily: 'TideFont',
+                            fontSize: 16,
+                            color: theme.textStrong,
                           ),
+                          decoration: InputDecoration(
+                            hintText: _isRecording
+                                ? '录音中 $_recSecs 秒…'
+                                : '输入消息',
+                            hintStyle: TextStyle(color: theme.textWeak),
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            contentPadding: const EdgeInsets.symmetric(
+                              vertical: 13,
+                            ),
+                          ),
+                          onSubmitted: (_) => _sendFromComposer(),
                         ),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    IconButton(
+                      tooltip: '添加附件',
+                      onPressed: _telegramAttachments,
+                      icon: Icon(
+                        Icons.attach_file_rounded,
+                        size: 27,
+                        color: theme.textWeak,
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(3),
+                      child: SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: Material(
+                          color: telegramGreen,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: hasContent
+                                ? (_loading ? null : _sendFromComposer)
+                                : ((!_isRecording &&
+                                          _sendVoiceCooldown.isBlocked)
+                                      ? null
+                                      : _toggleRec),
+                            child: Icon(
+                              hasContent
+                                  ? Icons.arrow_upward_rounded
+                                  : (_isRecording
+                                        ? Icons.stop_rounded
+                                        : Icons.mic_none_rounded),
+                              color: Colors.white,
+                              size: 28,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            material: 'frosted',
+            radius: BorderRadius.circular(32),
           ),
         ),
       ),

@@ -14,6 +14,7 @@ import 'app_permissions.dart';
 import 'package:flutter/material.dart';
 
 import 'theme.dart';
+import 'tide_appearance_surface.dart';
 import 'ui_components.dart';
 import 'ai.dart';
 import 'app_log_service.dart';
@@ -1656,28 +1657,38 @@ class _CallPageState extends State<CallPage>
     required Widget child,
     EdgeInsetsGeometry padding = EdgeInsets.zero,
     double radius = 24,
+    String? appearanceTarget,
   }) {
     final shape = BorderRadius.circular(radius);
+    final surface = Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        borderRadius: shape,
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withValues(alpha: .16),
+            Colors.white.withValues(alpha: .06),
+          ],
+        ),
+        border: Border.all(color: Colors.white.withValues(alpha: .16)),
+      ),
+      child: child,
+    );
+    final target = appearanceTarget;
     return ClipRRect(
       borderRadius: shape,
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 24, sigmaY: 24),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            borderRadius: shape,
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: .16),
-                Colors.white.withValues(alpha: .06),
-              ],
-            ),
-            border: Border.all(color: Colors.white.withValues(alpha: .16)),
-          ),
-          child: child,
-        ),
+        child: target == null
+            ? surface
+            : tideAppearanceSurface(
+                context,
+                target,
+                surface,
+                material: 'frosted',
+              ),
       ),
     );
   }
@@ -1687,6 +1698,7 @@ class _CallPageState extends State<CallPage>
       constraints: const BoxConstraints(maxWidth: 520),
       child: _videoGlass(
         radius: 20,
+        appearanceTarget: 'card',
         padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
         child: AnimatedSize(
           duration: const Duration(milliseconds: 220),

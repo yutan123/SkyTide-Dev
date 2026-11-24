@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_permissions.dart';
 import 'db.dart';
 import 'theme.dart';
+import 'tide_appearance_surface.dart';
 
 class ChatBackgroundPage extends StatefulWidget {
   const ChatBackgroundPage({super.key});
@@ -144,9 +145,8 @@ class _ChatBackgroundPageState extends State<ChatBackgroundPage> {
   }
 
   @override
-  Widget build(BuildContext context) => TideBackground(
-        child: _buildContent(context),
-      );
+  Widget build(BuildContext context) =>
+      TideBackground(child: _buildContent(context));
 
   Widget _buildContent(BuildContext context) {
     final theme = TideTheme.of(context);
@@ -159,110 +159,122 @@ class _ChatBackgroundPageState extends State<ChatBackgroundPage> {
       body: _loading
           ? Center(child: CircularProgressIndicator(color: theme.primary))
           : _loadError != null
-              ? Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(_loadError!, style: TextStyle(color: theme.textWeak)),
+                  const SizedBox(height: 12),
+                  TextButton.icon(
+                    style: TextButton.styleFrom(foregroundColor: theme.primary),
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh_rounded),
+                    label: const Text('重试'),
+                  ),
+                ],
+              ),
+            )
+          : _bots.isEmpty
+          ? Center(
+              child: Text('暂无机器人', style: TextStyle(color: theme.textWeak)),
+            )
+          : Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                  child: Row(
                     children: [
-                      Text(_loadError!,
-                          style: TextStyle(color: theme.textWeak)),
-                      const SizedBox(height: 12),
-                      TextButton.icon(
-                        style: TextButton.styleFrom(
-                            foregroundColor: theme.primary),
-                        onPressed: _load,
-                        icon: const Icon(Icons.refresh_rounded),
-                        label: const Text('重试'),
+                      Text(
+                        '选择机器人',
+                        style: TextStyle(
+                          color: theme.textWeak,
+                          fontFamily: 'TideFont',
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${_selected.length} 个已选',
+                        style: TextStyle(
+                          color: theme.textFaint,
+                          fontFamily: 'TideFont',
+                        ),
                       ),
                     ],
                   ),
-                )
-              : _bots.isEmpty
-                  ? Center(
-                      child: Text('暂无机器人',
-                          style: TextStyle(color: theme.textWeak)))
-                  : Column(
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                          child: Row(
-                            children: [
-                              Text('选择机器人',
-                                  style: TextStyle(
+                ),
+                Expanded(
+                  child: ListView.builder(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
+                    itemCount: _bots.length,
+                    itemBuilder: (context, index) {
+                      final bot = _bots[index];
+                      final id = bot['id']?.toString() ?? '';
+                      final selected = _selected.contains(id);
+                      final path = _backgrounds[id];
+                      return TideMaterialCard(
+                        target: 'card.bot',
+                        color: theme.surface,
+                        child: CheckboxListTile(
+                          activeColor: theme.primary,
+                          checkColor: Colors.white,
+                          value: selected,
+                          onChanged: _saving
+                              ? null
+                              : (_) => setState(
+                                  () => selected
+                                      ? _selected.remove(id)
+                                      : _selected.add(id),
+                                ),
+                          secondary: path == null
+                              ? CircleAvatar(
+                                  child: Text(
+                                    (bot['name']?.toString() ?? '机')
+                                        .characters
+                                        .first,
+                                  ),
+                                )
+                              : ClipRRect(
+                                  borderRadius: BorderRadius.circular(8),
+                                  child: Image.file(
+                                    File(path),
+                                    width: 48,
+                                    height: 48,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => Icon(
+                                      Icons.broken_image_outlined,
                                       color: theme.textWeak,
-                                      fontFamily: 'TideFont')),
-                              const Spacer(),
-                              Text('${_selected.length} 个已选',
-                                  style: TextStyle(
-                                      color: theme.textFaint,
-                                      fontFamily: 'TideFont')),
+                                    ),
+                                  ),
+                                ),
+                          title: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  bot['name']?.toString() ?? '未命名机器人',
+                                  style: const TextStyle(
+                                    fontFamily: 'TideFont',
+                                  ),
+                                ),
+                              ),
+                              if (path != null)
+                                Icon(
+                                  Icons.check_circle_rounded,
+                                  color: theme.primary,
+                                  size: 19,
+                                ),
                             ],
                           ),
-                        ),
-                        Expanded(
-                          child: ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-                            itemCount: _bots.length,
-                            itemBuilder: (context, index) {
-                              final bot = _bots[index];
-                              final id = bot['id']?.toString() ?? '';
-                              final selected = _selected.contains(id);
-                              final path = _backgrounds[id];
-                              return Card(
-                                color: theme.surface,
-                                child: CheckboxListTile(
-                                  activeColor: theme.primary,
-                                  checkColor: Colors.white,
-                                  value: selected,
-                                  onChanged: _saving
-                                      ? null
-                                      : (_) => setState(() => selected
-                                          ? _selected.remove(id)
-                                          : _selected.add(id)),
-                                  secondary: path == null
-                                      ? CircleAvatar(
-                                          child: Text(
-                                              (bot['name']?.toString() ?? '机')
-                                                  .characters
-                                                  .first))
-                                      : ClipRRect(
-                                          borderRadius:
-                                              BorderRadius.circular(8),
-                                          child: Image.file(File(path),
-                                              width: 48,
-                                              height: 48,
-                                              fit: BoxFit.cover,
-                                              errorBuilder: (_, __, ___) => Icon(
-                                                  Icons.broken_image_outlined,
-                                                  color: theme.textWeak)),
-                                        ),
-                                  title: Row(
-                                    children: [
-                                      Expanded(
-                                        child: Text(
-                                          bot['name']?.toString() ?? '未命名机器人',
-                                          style: const TextStyle(
-                                              fontFamily: 'TideFont'),
-                                        ),
-                                      ),
-                                      if (path != null)
-                                        Icon(
-                                          Icons.check_circle_rounded,
-                                          color: theme.primary,
-                                          size: 19,
-                                        ),
-                                    ],
-                                  ),
-                                  subtitle: Text(
-                                      path == null ? '未设置聊天背景' : '已设置聊天背景',
-                                      style: const TextStyle(
-                                          fontFamily: 'TideFont')),
-                                ),
-                              );
-                            },
+                          subtitle: Text(
+                            path == null ? '未设置聊天背景' : '已设置聊天背景',
+                            style: const TextStyle(fontFamily: 'TideFont'),
                           ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
       bottomNavigationBar: SafeArea(
         minimum: const EdgeInsets.fromLTRB(16, 8, 16, 12),
         child: Row(

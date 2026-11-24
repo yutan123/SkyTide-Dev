@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'tide_popover.dart';
 import 'dart:ui';
 import 'package:flutter/material.dart';
@@ -438,100 +439,119 @@ class _ChartCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     final hasBackground = theme.globalBackground.isNotEmpty;
-    return Container(
-      decoration: BoxDecoration(
-        color: hasBackground
-            ? Colors.white.withValues(alpha: 0.15)
-            : theme.surfaceVariant,
-        borderRadius: BorderRadius.circular(18),
-        border: hasBackground
-            ? Border.all(color: Colors.white.withValues(alpha: 0.2), width: 1.5)
-            : null,
-        boxShadow: hasBackground
-            ? [
-                BoxShadow(
+    return tideAppearanceSurface(
+      context,
+      'card.chart',
+      Container(
+        decoration: BoxDecoration(
+          color: hasBackground
+              ? Colors.white.withValues(alpha: 0.15)
+              : theme.surfaceVariant,
+          borderRadius: BorderRadius.circular(18),
+          border: hasBackground
+              ? Border.all(
+                  color: Colors.white.withValues(alpha: 0.2),
+                  width: 1.5,
+                )
+              : null,
+          boxShadow: hasBackground
+              ? [
+                  BoxShadow(
                     color: Colors.black.withValues(alpha: 0.1),
                     blurRadius: 10,
-                    offset: const Offset(0, 4))
-              ]
-            : null,
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: BackdropFilter(
-          filter: hasBackground
-              ? ImageFilter.blur(sigmaX: 0, sigmaY: 0)
-              : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Text(title,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: BackdropFilter(
+            filter: hasBackground
+                ? ImageFilter.blur(sigmaX: 0, sigmaY: 0)
+                : ImageFilter.blur(sigmaX: 0, sigmaY: 0),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        title,
                         style: TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w600,
-                            color: theme.textStrong,
-                            fontFamily: 'TideFont')),
-                    const Spacer(),
-                    Text(subtitle,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: theme.textStrong,
+                          fontFamily: 'TideFont',
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        subtitle,
                         style: TextStyle(
-                            fontSize: 12,
-                            color: theme.textFaint,
-                            fontFamily: 'TideFont')),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                SizedBox(
-                  height: 150,
-                  child: TweenAnimationBuilder<double>(
-                    key: ValueKey(
-                        '${subtitle}_${series.length}_${series.fold<int>(0, (a, b) => a + b)}'),
-                    duration: const Duration(milliseconds: 420),
-                    curve: Curves.easeOutCubic,
-                    tween: Tween(begin: 0, end: 1),
-                    builder: (_, progress, __) => GestureDetector(
-                      behavior: HitTestBehavior.opaque,
-                      onTapUp: (details) {
-                        if (series.isEmpty) return;
-                        final box = context.findRenderObject() as RenderBox?;
-                        final chartWidth = box?.size.width ?? 1;
-                        final index = series.length == 1
-                            ? 0
-                            : ((details.localPosition.dx.clamp(0, chartWidth) /
-                                        chartWidth) *
-                                    (series.length - 1))
-                                .round()
-                                .clamp(0, series.length - 1);
-                        onSelect(index);
-                      },
-                      child: CustomPaint(
-                        size: Size.infinite,
-                        painter: _LineChartPainter(
-                          color: color,
-                          series: series,
-                          gridColor: theme.divider,
-                          selectedIndex: selectedIndex,
-                          progress: progress,
+                          fontSize: 12,
+                          color: theme.textFaint,
+                          fontFamily: 'TideFont',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: 150,
+                    child: TweenAnimationBuilder<double>(
+                      key: ValueKey(
+                        '${subtitle}_${series.length}_${series.fold<int>(0, (a, b) => a + b)}',
+                      ),
+                      duration: const Duration(milliseconds: 420),
+                      curve: Curves.easeOutCubic,
+                      tween: Tween(begin: 0, end: 1),
+                      builder: (_, progress, __) => GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onTapUp: (details) {
+                          if (series.isEmpty) return;
+                          final box = context.findRenderObject() as RenderBox?;
+                          final chartWidth = box?.size.width ?? 1;
+                          final index = series.length == 1
+                              ? 0
+                              : ((details.localPosition.dx.clamp(
+                                              0,
+                                              chartWidth,
+                                            ) /
+                                            chartWidth) *
+                                        (series.length - 1))
+                                    .round()
+                                    .clamp(0, series.length - 1);
+                          onSelect(index);
+                        },
+                        child: CustomPaint(
+                          size: Size.infinite,
+                          painter: _LineChartPainter(
+                            color: color,
+                            series: series,
+                            gridColor: theme.divider,
+                            selectedIndex: selectedIndex,
+                            progress: progress,
+                          ),
                         ),
                       ),
                     ),
                   ),
-                ),
-                if (selectedIndex != null && selectedIndex! < days.length)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      '${days[selectedIndex!].year}-${days[selectedIndex!].month.toString().padLeft(2, '0')}-${days[selectedIndex!].day.toString().padLeft(2, '0')}  ·  ${series[selectedIndex!]} $title',
-                      style: TextStyle(
+                  if (selectedIndex != null && selectedIndex! < days.length)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        '${days[selectedIndex!].year}-${days[selectedIndex!].month.toString().padLeft(2, '0')}-${days[selectedIndex!].day.toString().padLeft(2, '0')}  ·  ${series[selectedIndex!]} $title',
+                        style: TextStyle(
                           fontFamily: 'TideFont',
                           fontSize: 12,
-                          color: theme.textWeak),
+                          color: theme.textWeak,
+                        ),
+                      ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
           ),
         ),

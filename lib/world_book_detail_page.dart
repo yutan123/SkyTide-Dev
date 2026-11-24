@@ -9,6 +9,7 @@ import 'db.dart';
 import 'future_tasks_page.dart';
 import 'memory_retrieval_policy.dart';
 import 'theme.dart';
+import 'tide_appearance_surface.dart';
 import 'ui_components.dart';
 
 class WorldBookDetailPage extends StatefulWidget {
@@ -1779,7 +1780,7 @@ class _GlassPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
     final glass = theme.useLiquidGlass;
-    final content = Container(
+    final content = tideAppearanceSurface(context, 'card', Container(
       padding: padding,
       decoration: BoxDecoration(
         color: glass
@@ -1803,7 +1804,7 @@ class _GlassPanel extends StatelessWidget {
         ],
       ),
       child: child,
-    );
+    ), material: glass ? 'frosted' : 'normal');
     if (!glass) return content;
     return ClipRRect(
       borderRadius: BorderRadius.circular(radius),

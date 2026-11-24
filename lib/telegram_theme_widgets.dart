@@ -2,6 +2,7 @@ import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'theme.dart';
+import 'tide_appearance_surface.dart';
 import 'tide_popover.dart';
 
 const telegramGreen = Color(0xFF12B86A);
@@ -13,29 +14,46 @@ class TelegramGlass extends StatelessWidget {
     required this.child,
     this.radius = 28,
     this.fillOpacity,
+    this.appearanceTarget,
   });
   final Widget child;
   final double radius;
   final double? fillOpacity;
+  final String? appearanceTarget;
   @override
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
+    final target = appearanceTarget;
+    final borderRadius = BorderRadius.circular(radius);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
+      borderRadius: borderRadius,
       child: BackdropFilter(
         filter: ui.ImageFilter.blur(sigmaX: 22, sigmaY: 22),
         child: DecoratedBox(
           decoration: BoxDecoration(
-            color: theme.surface.withValues(
-              alpha: fillOpacity ?? (theme.isDark ? .78 : .83),
-            ),
+            color:
+                (target == null
+                    ? null
+                    : tideAppearanceFill(context, target, 'frosted')) ??
+                theme.surface.withValues(
+                  alpha: fillOpacity ?? (theme.isDark ? .78 : .83),
+                ),
             borderRadius: BorderRadius.circular(radius),
             border: Border.all(
               color: Colors.white.withValues(alpha: theme.isDark ? .08 : .65),
               width: .6,
             ),
           ),
-          child: child,
+          child: target == null
+              ? child
+              : tideAppearanceSurface(
+                  context,
+                  target,
+                  child,
+                  material: 'frosted',
+                  radius: borderRadius,
+                  paintFill: false,
+                ),
         ),
       ),
     );
@@ -66,6 +84,7 @@ Future<T?> showTelegramMenu<T>({
       animation: animation,
       child: TelegramGlass(
         radius: 26,
+        appearanceTarget: 'dialog.popover',
         fillOpacity: TideTheme.of(context).isDark ? .72 : .64,
         child: Material(
           color: Colors.transparent,
@@ -325,9 +344,11 @@ class TelegramBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
-    final color = isUser
-        ? (theme.isDark ? const Color(0xFF315B45) : const Color(0xFFE2F6CD))
-        : theme.surface;
+    final color =
+        theme.appearanceColor(isUser ? 'bubbleUser' : 'bubbleAi') ??
+        (isUser
+            ? (theme.isDark ? const Color(0xFF315B45) : const Color(0xFFE2F6CD))
+            : theme.surface);
     return CustomPaint(
       painter: _TelegramBubblePainter(color, isUser, showTail, joinsPrevious),
       child: Padding(

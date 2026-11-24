@@ -41,7 +41,86 @@ void reject(void Function() work, String message) {
   throw StateError('Expected rejection: $message');
 }
 
+void checkScriptArchives() {
+  const pngHeader = [137, 80, 78, 71, 13, 10, 26, 10];
+  final files = <String, List<int>>{
+    'launch.js': utf8.encode('function draw(frame) { return []; }'),
+    'media/mark.png': pngHeader,
+  };
+  Map<String, dynamic> scriptManifest([
+    Map<String, dynamic> fields = const {},
+  ]) => {
+    ...manifest(),
+    'requiredCapabilities': [PluginLaunchSpec.scriptCapability],
+    'appearance': {
+      'launchAnimation': {
+        'script': 'launch.js',
+        'durationMs': 2500,
+        'images': {'mark': 'media/mark.png'},
+        ...fields,
+      },
+    },
+  };
+  final package = PluginArchive.decode(zip(scriptManifest(), files));
+  final parsed = PluginLaunchSpec.fromManifest(package.manifest)!;
+  check(
+    parsed.isScript &&
+        parsed.asset == null &&
+        parsed.durationMs == 2500 &&
+        parsed.images['mark'] == 'media/mark.png',
+    'script package without entry',
+  );
+  PluginArchive.decode(
+    zip(scriptManifest({'images': {}}), {'launch.js': files['launch.js']!}),
+  );
+  for (final invalid in [
+    {'asset': 'a.mp4'},
+    {'fit': 'contain'},
+    {'script': '../launch.js'},
+    {'script': 'https://example.com/launch.js'},
+    {'script': 'missing.js'},
+    {'durationMs': 10001},
+    {
+      'images': {'invalid/key': 'media/mark.png'},
+    },
+    {
+      'images': {'mark': 'media/missing.png'},
+    },
+    {
+      'images': {'mark': 'media/mark.gif'},
+    },
+  ]) {
+    reject(
+      () => PluginArchive.decode(zip(scriptManifest(invalid), files)),
+      '$invalid',
+    );
+  }
+  for (final replacement in <Map<String, List<int>>>[
+    {
+      'launch.js': [255],
+    },
+    {'launch.js': List.filled(PluginLaunchSpec.scriptLimit + 1, 32)},
+    {
+      'media/mark.png': [1, 2, 3],
+    },
+  ]) {
+    reject(
+      () => PluginArchive.decode(
+        zip(scriptManifest(), {...files, ...replacement}),
+      ),
+      'invalid script package bytes',
+    );
+  }
+  reject(
+    () => PluginArchive.decode(
+      zip(scriptManifest()..remove('requiredCapabilities'), files),
+    ),
+    'missing script capability',
+  );
+}
+
 void main() {
+  checkScriptArchives();
   final archive = PluginArchive.decode(
     zip(manifest(), {'media/intro.mp4': mp4Header}),
   );

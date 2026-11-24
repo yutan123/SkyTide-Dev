@@ -7,6 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 import 'package:path/path.dart' as p;
+import 'package:package_info_plus/package_info_plus.dart';
+import 'plugin_market_version.dart';
 
 import 'db.dart';
 import 'plugin_package_files.dart';
@@ -166,6 +168,65 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     await _reload();
   }
 
+  bool _confirmingMarketDownload = false;
+  Future<void> _downloadMarket(
+    MarketPlugin plugin, {
+    required bool update,
+  }) async {
+    if (!mounted || _busy || _confirmingMarketDownload) return;
+    final minimum = plugin.minSkyTideVersion;
+    if (minimum != null) {
+      _confirmingMarketDownload = true;
+      try {
+        String? current;
+        try {
+          current = (await PackageInfo.fromPlatform()).version;
+        } catch (_) {
+          // An unreadable version does not prevent the user from proceeding.
+        }
+        if (!mounted) return;
+        if (!PluginMarketVersion.meetsMinimum(current ?? '', minimum)) {
+          final confirmed = await showTideDialog<bool>(
+            context: context,
+            builder: (ctx) {
+              final theme = TideTheme.of(ctx);
+              return TideDialogSurface(
+                kind: TideDialogKind.confirm,
+                title: const Text('下载兼容性提示'),
+                content: Text(
+                  '当前插件最低支持版本为 $minimum。\n'
+                  '当前 SkyTide 版本为 ${current?.isNotEmpty == true ? current : '未知'}。\n'
+                  '下载后可能会出现不支持的情况，确认下载吗？',
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(ctx, false),
+                    child: Text('取消', style: TextStyle(color: theme.textWeak)),
+                  ),
+                  FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: theme.primary,
+                    ),
+                    onPressed: () => Navigator.pop(ctx, true),
+                    child: const Text('继续下载'),
+                  ),
+                ],
+              );
+            },
+          );
+          if (confirmed != true) return;
+        }
+      } finally {
+        _confirmingMarketDownload = false;
+      }
+    }
+    await _operate(
+      () => _installMarket(plugin),
+      cancellable: true,
+      label: update ? '正在下载并更新插件…' : '正在下载插件…',
+    );
+  }
+
   Future<void> _installMarket(MarketPlugin plugin) async {
     final row = _plugins.where((r) => r['id'] == plugin.id).firstOrNull;
     if (row != null && _marketUpdate(row) == null) return;
@@ -196,15 +257,16 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         installedLaunchAnimation = await PluginSystem.instance.installZip(
           file.path,
           operation: _operation,
+          marketSource: plugin.sourceRecord,
         );
       } else {
         await PluginService.instance.updateZip(
           plugin.id,
           file.path,
           operation: _operation,
+          marketSource: plugin.sourceRecord,
         );
       }
-      await PluginMarket.instance.saveSource(plugin);
       if (row == null) {
         if (installedLaunchAnimation && mounted) _noticeLaunchInstalled();
         _pendingReadmeId = plugin.id;
@@ -304,7 +366,8 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       );
     } catch (error) {
       if (mounted) {
-        if (operation?.cancelled == true) {
+        if (operation?.cancelled == true &&
+            error is! PluginUpdateRecoveryFailure) {
           try {
             operation?.check();
           } catch (reason) {
@@ -396,7 +459,6 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       _operation?.check();
       final id = row['id'] as String;
       await PluginService.instance.updateZip(id, path, operation: _operation);
-      await PluginMarket.instance.clearSource(id);
     } finally {
       await _cleanTemp();
     }
@@ -407,6 +469,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     final confirmed = await TideDialogs.show<bool>(
       context: context,
       builder: (dialogContext) => TideDialogSurface(
+        kind: TideDialogKind.confirm,
         backgroundColor: Colors.transparent,
         contentPadding: EdgeInsets.zero,
         child: TideDialogs.glassContent(
@@ -542,6 +605,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, refresh) => TideDialogSurface(
+            kind: TideDialogKind.choice,
             title: const Text('选择启用的机器人'),
             content: SizedBox(
               width: double.maxFinite,
@@ -640,6 +704,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
         context: context,
         builder: (ctx) => StatefulBuilder(
           builder: (ctx, refresh) => TideDialogSurface(
+            kind: TideDialogKind.form,
             title: const Text('系统权限'),
             content: SingleChildScrollView(
               child: Column(
@@ -700,6 +765,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       final pack = _packages[row['id']];
       final error = PluginService.instance.errors[row['id']];
       return TideDialogSurface(
+        kind: TideDialogKind.notice,
         maxHeightFactor: _detailDialogMaxHeightFactor,
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
         title: Row(
@@ -857,6 +923,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
   }) => TideDialogs.show<void>(
     context: context,
     builder: (ctx) => TideDialogSurface(
+      kind: TideDialogKind.notice,
       maxHeightFactor: maxHeightFactor,
       title: maxHeightFactor == null
           ? Align(alignment: Alignment.centerLeft, child: Text(title))
@@ -946,6 +1013,8 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
     plugin.name,
     [
       '作者：${plugin.author} · 版本：${plugin.version}',
+      if (plugin.minSkyTideVersion case final minimum?)
+        '需要 SkyTide $minimum 或以上',
       plugin.description,
       if (showChangelog) 'ID：${plugin.id}',
       if (showChangelog)
@@ -1295,13 +1364,7 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
       minimumSize: const Size.square(32),
       padding: EdgeInsets.zero,
     ),
-    onPressed: _busy
-        ? null
-        : () => _operate(
-            () => _installMarket(plugin),
-            cancellable: true,
-            label: '正在下载并更新插件…',
-          ),
+    onPressed: _busy ? null : () => _downloadMarket(plugin, update: true),
     icon: const Icon(Icons.system_update_alt_rounded, size: 19),
   );
 
@@ -1512,11 +1575,8 @@ class _PluginManagerPageState extends State<PluginManagerPage> {
                               ),
                               onPressed: _busy || installed != null
                                   ? null
-                                  : () => _operate(
-                                      () => _installMarket(plugin),
-                                      cancellable: true,
-                                      label: '正在下载插件…',
-                                    ),
+                                  : () =>
+                                        _downloadMarket(plugin, update: false),
                               icon: Icon(
                                 installed == null
                                     ? Icons.download_rounded

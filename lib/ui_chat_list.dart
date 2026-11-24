@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'coalesced_refresh.dart';
 import 'dart:async';
 import 'dart:convert';
@@ -807,112 +808,119 @@ class ChatListPageState extends State<ChatListPage> {
                     : const Color(0xFFECEEF5))
               : theme.surface)
         : (pinned ? theme.wechatBar : theme.surface);
-    return Container(
-      color: color,
-      padding: const EdgeInsets.only(left: 16),
-      child: Row(
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(
-                  (theme.isQq || theme.isTelegram)
-                      ? (theme.isTelegram ? 28 : 26)
-                      : 5,
-                ),
-                child: SkyTideAvatar(
-                  name: bot['name']?.toString() ?? '',
-                  path: bot['avatar']?.toString(),
-                  size: (theme.isQq || theme.isTelegram)
-                      ? (theme.isTelegram ? 56 : 52)
-                      : 42,
-                  radius: (theme.isQq || theme.isTelegram)
-                      ? (theme.isTelegram ? 28 : 26)
-                      : 5,
-                ),
-              ),
-              if (bot['unread'] == true)
-                Positioned(
-                  right: -4,
-                  top: -4,
-                  child: Container(
-                    width: 10,
-                    height: 10,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFFA5151),
-                      shape: BoxShape.circle,
-                    ),
+    return tideAppearanceSurface(
+      context,
+      'card.bot',
+      Container(
+        color: color,
+        padding: const EdgeInsets.only(left: 16),
+        child: Row(
+          children: [
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(
+                    (theme.isQq || theme.isTelegram)
+                        ? (theme.isTelegram ? 28 : 26)
+                        : 5,
+                  ),
+                  child: SkyTideAvatar(
+                    name: bot['name']?.toString() ?? '',
+                    path: bot['avatar']?.toString(),
+                    size: (theme.isQq || theme.isTelegram)
+                        ? (theme.isTelegram ? 56 : 52)
+                        : 42,
+                    radius: (theme.isQq || theme.isTelegram)
+                        ? (theme.isTelegram ? 28 : 26)
+                        : 5,
                   ),
                 ),
-            ],
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Container(
-              constraints: BoxConstraints(
-                minHeight: (theme.isQq || theme.isTelegram) ? 78 : 76,
-              ),
-              padding: const EdgeInsets.only(top: 13, bottom: 13, right: 16),
-              decoration: BoxDecoration(
-                border: (theme.isQq || theme.isTelegram)
-                    ? null
-                    : Border(
-                        bottom: BorderSide(color: theme.divider, width: .5),
+                if (bot['unread'] == true)
+                  Positioned(
+                    right: -4,
+                    top: -4,
+                    child: Container(
+                      width: 10,
+                      height: 10,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFFA5151),
+                        shape: BoxShape.circle,
                       ),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Container(
+                constraints: BoxConstraints(
+                  minHeight: (theme.isQq || theme.isTelegram) ? 78 : 76,
+                ),
+                padding: const EdgeInsets.only(top: 13, bottom: 13, right: 16),
+                decoration: BoxDecoration(
+                  border: (theme.isQq || theme.isTelegram)
+                      ? null
+                      : Border(
+                          bottom: BorderSide(color: theme.divider, width: .5),
+                        ),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            bot['name']?.toString() ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: theme.textStrong,
+                            ),
+                          ),
+                          const SizedBox(height: 5),
+                          Text(
+                            bot['preview']?.toString().isNotEmpty == true
+                                ? bot['preview'].toString()
+                                : '点击开始对话',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: theme.textWeak,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
                         Text(
-                          bot['name']?.toString() ?? '',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 15,
-                            color: theme.textStrong,
+                          fmtTime(bot['lastTime'] as int? ?? 0),
+                          style: TextStyle(fontSize: 11, color: theme.textWeak),
+                        ),
+                        if (disabled)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 8),
+                            child: Icon(
+                              Icons.notifications_off_outlined,
+                              size: 16,
+                              color: theme.textWeak,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          bot['preview']?.toString().isNotEmpty == true
-                              ? bot['preview'].toString()
-                              : '点击开始对话',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 13, color: theme.textWeak),
-                        ),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        fmtTime(bot['lastTime'] as int? ?? 0),
-                        style: TextStyle(fontSize: 11, color: theme.textWeak),
-                      ),
-                      if (disabled)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 8),
-                          child: Icon(
-                            Icons.notifications_off_outlined,
-                            size: 16,
-                            color: theme.textWeak,
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -921,6 +929,7 @@ class ChatListPageState extends State<ChatListPage> {
     final av = (bot['avatar'] as String?) ?? '';
     if (TideTheme.of(context).usesMessagingLayout) return _wechatRow(bot);
     return GlassCard(
+      appearanceTarget: 'card.bot',
       liquid: true,
       padding: const EdgeInsets.all(14),
       onTap: () => _openChat(bot),

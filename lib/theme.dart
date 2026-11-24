@@ -1,3 +1,4 @@
+import 'plugin_interface_theme.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -128,6 +129,33 @@ class _TideBackgroundState extends State<TideBackground> {
 }
 
 class TideTheme extends ChangeNotifier {
+  PluginInterfaceTheme? _pluginTheme;
+  String? _pluginThemeRoot;
+  String? _pluginThemeRevision;
+
+  String? get appearanceRoot => _pluginThemeRoot;
+  String? get appearanceRevision => _pluginThemeRevision;
+
+  void setPluginAppearance(
+    PluginInterfaceTheme? theme,
+    String? root,
+    String? revision,
+  ) {
+    if (revision == _pluginThemeRevision && root == _pluginThemeRoot) return;
+    _pluginTheme = theme;
+    _pluginThemeRoot = root;
+    _pluginThemeRevision = revision;
+    notifyListeners();
+  }
+
+  Color? appearanceColor(String key) {
+    final color = _pluginTheme?.color(key, isDark);
+    return color == null ? null : Color(color);
+  }
+
+  PluginSurfaceStyle? appearanceSurface(String target, String material) =>
+      _pluginTheme?.surface(target, material, isDark);
+
   static const int _maxBackgroundBytes = 12 * 1024 * 1024;
   static const int _maxBackgroundPixels = 12 * 1000 * 1000;
   // 薄荷绿是产品默认主题；其他颜色仅在用户主动选择后使用。
@@ -141,7 +169,8 @@ class TideTheme extends ChangeNotifier {
   Color get wechatBar =>
       isDark ? const Color(0xFF191919) : const Color(0xFFEDEDED);
   Color get wechatOutgoing =>
-      isDark ? const Color(0xFF3EB575) : const Color(0xFF95EC69);
+      appearanceColor('bubbleUser') ??
+      (isDark ? const Color(0xFF3EB575) : const Color(0xFF95EC69));
 
   Future<void> setInterfaceTheme(String value) async {
     if (!const {'default', 'wechat', 'qq', 'telegram'}.contains(value)) return;
@@ -172,22 +201,28 @@ class TideTheme extends ChangeNotifier {
   double _backgroundPreparationDpr = 0;
   final Map<_BackgroundRegion, bool> _backgroundLightness = {};
 
-  Color get primary => isTelegram
-      ? const Color(0xFF12B86A)
-      : isQq
-      ? const Color(0xFF0099FF)
-      : isWechat
-      ? const Color(0xFF07C160)
-      : _primary;
-  Color get primaryLight => isTelegram
-      ? const Color(0xFF71D4A4)
-      : isQq
-      ? const Color(0xFF73C8FF)
-      : isWechat
-      ? const Color(0xFF38CD7F)
-      : _primaryLight;
-  Color get chatBackgroundPrimary => isQq ? _primary : primary;
-  Color get chatBackgroundAccent => isQq ? _primaryLight : primaryLight;
+  Color get primary =>
+      appearanceColor('primary') ??
+      (isTelegram
+          ? const Color(0xFF12B86A)
+          : isQq
+          ? const Color(0xFF0099FF)
+          : isWechat
+          ? const Color(0xFF07C160)
+          : _primary);
+  Color get primaryLight =>
+      appearanceColor('primaryLight') ??
+      (isTelegram
+          ? const Color(0xFF71D4A4)
+          : isQq
+          ? const Color(0xFF73C8FF)
+          : isWechat
+          ? const Color(0xFF38CD7F)
+          : _primaryLight);
+  Color get chatBackgroundPrimary =>
+      appearanceColor('primary') ?? (isQq ? _primary : primary);
+  Color get chatBackgroundAccent =>
+      appearanceColor('primaryLight') ?? (isQq ? _primaryLight : primaryLight);
   String get name => _name;
   ThemeMode get mode => _mode;
   bool get hasManualMode => _manualMode;
@@ -434,6 +469,8 @@ class TideTheme extends ChangeNotifier {
       _backgroundLightness[region] ?? !isDark;
 
   Color _onBackgroundFor(_BackgroundRegion region, {bool weak = false}) {
+    final override = appearanceColor(weak ? 'textWeak' : 'textStrong');
+    if (override != null) return override;
     if (!useLiquidGlass) {
       return weak
           ? (isDark ? const Color(0xFF8A8F98) : const Color(0xFF636366))
@@ -462,17 +499,20 @@ class TideTheme extends ChangeNotifier {
 
   LinearGradient get primaryGradient =>
       LinearGradient(colors: [primary, primaryLight]);
-  Color get pageBackground => isTelegram
-      ? (isDark ? const Color(0xFF17212B) : const Color(0xFFF1F1F3))
-      : isQq
-      ? (isDark ? const Color(0xFF18191D) : const Color(0xFFF0F0F2))
-      : isWechat
-      ? (isDark ? const Color(0xFF111111) : const Color(0xFFEDEDED))
-      : (isDark ? const Color(0xFF151820) : const Color(0xFFF3F5FA));
+  Color get pageBackground =>
+      appearanceColor('pageBackground') ??
+      (isTelegram
+          ? (isDark ? const Color(0xFF17212B) : const Color(0xFFF1F1F3))
+          : isQq
+          ? (isDark ? const Color(0xFF18191D) : const Color(0xFFF0F0F2))
+          : isWechat
+          ? (isDark ? const Color(0xFF111111) : const Color(0xFFEDEDED))
+          : (isDark ? const Color(0xFF151820) : const Color(0xFFF3F5FA)));
   Color get bgColor =>
       hasGlobalBackground ? Colors.transparent : pageBackground;
   Color get backgroundOverlayColor =>
-      isDark ? const Color(0xFF06080C) : const Color(0xFF101216);
+      appearanceColor('backgroundOverlay') ??
+      (isDark ? const Color(0xFF06080C) : const Color(0xFF101216));
   double get effectiveBackgroundOpacity {
     if (!hasGlobalBackground) return 0;
     final readabilityFloor = isDark ? 0.24 : 0.18;
@@ -483,40 +523,54 @@ class TideTheme extends ChangeNotifier {
 
   double get backgroundScrimOpacity => effectiveBackgroundOpacity;
 
-  Color get surface => isWechat
-      ? (isDark ? const Color(0xFF1F1F1F) : Colors.white)
-      : (isDark ? const Color(0xFF20242C) : const Color(0xFFFFFFFF));
-  Color get surfaceVariant => isWechat
-      ? (isDark ? const Color(0xFF292929) : const Color(0xFFF7F7F7))
-      : (isDark ? const Color(0xFF2B303A) : const Color(0xFFE9EDF5));
-  Color get glass => isDark ? const Color(0xE01D222B) : const Color(0xC9FFFFFF);
+  Color get surface =>
+      appearanceColor('surface') ??
+      (isWechat
+          ? (isDark ? const Color(0xFF1F1F1F) : Colors.white)
+          : (isDark ? const Color(0xFF20242C) : const Color(0xFFFFFFFF)));
+  Color get surfaceVariant =>
+      appearanceColor('surfaceVariant') ??
+      (isWechat
+          ? (isDark ? const Color(0xFF292929) : const Color(0xFFF7F7F7))
+          : (isDark ? const Color(0xFF2B303A) : const Color(0xFFE9EDF5)));
+  Color get glass =>
+      appearanceColor('glass') ??
+      (isDark ? const Color(0xE01D222B) : const Color(0xC9FFFFFF));
 
   // Night surfaces stay neutral graphite so theme accents and image content remain distinct.
 
   // 文字主色
   Color get textStrong =>
-      isDark ? const Color(0xFFECEDF0) : const Color(0xFF1C1C1E);
+      appearanceColor('textStrong') ??
+      (isDark ? const Color(0xFFECEDF0) : const Color(0xFF1C1C1E));
   Color get textWeak =>
-      isDark ? const Color(0xFF8A8F98) : const Color(0xFF636366);
+      appearanceColor('textWeak') ??
+      (isDark ? const Color(0xFF8A8F98) : const Color(0xFF636366));
   // 更弱的文字/图标色
   Color get textFaint =>
-      isDark ? const Color(0xFF5A5F68) : const Color(0xFFC7C7CC);
+      appearanceColor('textFaint') ??
+      (isDark ? const Color(0xFF5A5F68) : const Color(0xFFC7C7CC));
   // 分割线
   Color get divider =>
-      isDark ? const Color(0x22FFFFFF) : const Color(0x14000000);
+      appearanceColor('divider') ??
+      (isDark ? const Color(0x22FFFFFF) : const Color(0x14000000));
   // 边框
   Color get border =>
-      isDark ? const Color(0x33FFFFFF) : const Color(0x1A000000);
+      appearanceColor('border') ??
+      (isDark ? const Color(0x33FFFFFF) : const Color(0x1A000000));
   // 图标弱色
   Color get iconMuted =>
-      isDark ? const Color(0xFF9AA1A9) : const Color(0xFF8E8E93);
+      appearanceColor('iconMuted') ??
+      (isDark ? const Color(0xFF9AA1A9) : const Color(0xFF8E8E93));
   // AI/次要气泡底色（日间浅白、夜间深灰）
   Color get bubbleAi =>
-      isDark ? const Color(0xFF292E38) : const Color(0xFFFFFFFF);
+      appearanceColor('bubbleAi') ??
+      (isDark ? const Color(0xFF292E38) : const Color(0xFFFFFFFF));
 
   // 次要按钮底色（取消、次级操作）
   Color get buttonSecondary =>
-      isDark ? const Color(0xFF33363E) : const Color(0xFFE8E8F0);
+      appearanceColor('buttonSecondary') ??
+      (isDark ? const Color(0xFF33363E) : const Color(0xFFE8E8F0));
 
   // 主题配色：主色 + 亮色 + 中文名 + 深色底主色（护眼） + 深色亮色
   static const _themes = {

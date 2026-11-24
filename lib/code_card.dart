@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'native_selectable_text.dart';
@@ -31,181 +32,191 @@ class _CodeCardState extends State<CodeCard> {
   Widget build(BuildContext context) {
     final theme = TideTheme.of(context);
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: widget.isUser
-            ? theme.primary.withValues(alpha: 0.15)
-            : theme.surfaceVariant,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
+    return tideAppearanceSurface(
+      context,
+      'card.code',
+      Container(
+        margin: const EdgeInsets.only(bottom: 8),
+        decoration: BoxDecoration(
           color: widget.isUser
-              ? theme.primary.withValues(alpha: 0.3)
-              : theme.border,
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          // 顶部工具栏
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: widget.isUser
-                  ? theme.primary.withValues(alpha: 0.08)
-                  : theme.surface.withValues(alpha: 0.5),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(12),
-                topRight: Radius.circular(12),
-              ),
-            ),
-            child: Row(
-              children: [
-                // 语言标签
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: theme.primary.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    widget.language.toUpperCase(),
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w600,
-                      color: theme.primary,
-                      fontFamily: 'TideFont',
-                    ),
-                  ),
-                ),
-                const Spacer(),
-                // 全屏预览按钮（仅 HTML 显示）
-                if (_supportsPreview) ...[
-                  GestureDetector(
-                    onTap: () => _showFullscreenPreview(),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: Colors.transparent,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: theme.primary.withValues(alpha: 0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Icon(
-                        Icons.play_arrow_rounded,
-                        size: 16,
-                        color: theme.primary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                // 切换按钮（仅 HTML 显示）
-                if (_supportsPreview) ...[
-                  GestureDetector(
-                    onTap: () => setState(() => _showPreview = !_showPreview),
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: _showPreview
-                            ? theme.primary.withValues(alpha: 0.2)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(6),
-                        border: Border.all(
-                          color: theme.primary.withValues(alpha: 0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            _showPreview
-                                ? Icons.code_rounded
-                                : Icons.web_rounded,
-                            size: 14,
-                            color: theme.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            _showPreview ? '代码' : '预览',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: theme.primary,
-                              fontFamily: 'TideFont',
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                // 复制按钮
-                GestureDetector(
-                  onTap: () {
-                    Clipboard.setData(ClipboardData(text: widget.code));
-                    GlobalNotice.show('已复制到剪贴板');
-                  },
-                  child: Icon(
-                    Icons.content_copy_rounded,
-                    size: 16,
-                    color: theme.textWeak,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                // 保存按钮
-                GestureDetector(
-                  onTap: () => _saveFile(),
-                  child: Icon(
-                    Icons.save_alt_rounded,
-                    size: 16,
-                    color: theme.textWeak,
-                  ),
-                ),
-              ],
-            ),
+              ? theme.primary.withValues(alpha: 0.15)
+              : theme.surfaceVariant,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: widget.isUser
+                ? theme.primary.withValues(alpha: 0.3)
+                : theme.border,
+            width: 1,
           ),
-          // 代码/预览内容
-          if (_showPreview && _supportsPreview)
-            GestureDetector(
-              onTap: () => _showFullscreenPreview(),
-              child: Container(
-                height: 200,
-                padding: const EdgeInsets.all(12),
-                child: ClipRRect(
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(12),
-                    bottomRight: Radius.circular(12),
-                  ),
-                  child: _buildHtmlPreview(),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 顶部工具栏
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: widget.isUser
+                    ? theme.primary.withValues(alpha: 0.08)
+                    : theme.surface.withValues(alpha: 0.5),
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
                 ),
               ),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(12),
-              constraints: const BoxConstraints(maxHeight: 400),
-              child: SingleChildScrollView(
-                child: NativeSelectableText(
-                  widget.code,
-                  nativeInteraction: true,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontFamily: 'Courier',
-                    color: theme.textStrong,
-                    height: 1.4,
+              child: Row(
+                children: [
+                  // 语言标签
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: theme.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      widget.language.toUpperCase(),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: theme.primary,
+                        fontFamily: 'TideFont',
+                      ),
+                    ),
                   ),
-                ),
+                  const Spacer(),
+                  // 全屏预览按钮（仅 HTML 显示）
+                  if (_supportsPreview) ...[
+                    GestureDetector(
+                      onTap: () => _showFullscreenPreview(),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: theme.primary.withValues(alpha: 0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.play_arrow_rounded,
+                          size: 16,
+                          color: theme.primary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  // 切换按钮（仅 HTML 显示）
+                  if (_supportsPreview) ...[
+                    GestureDetector(
+                      onTap: () => setState(() => _showPreview = !_showPreview),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _showPreview
+                              ? theme.primary.withValues(alpha: 0.2)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(
+                            color: theme.primary.withValues(alpha: 0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              _showPreview
+                                  ? Icons.code_rounded
+                                  : Icons.web_rounded,
+                              size: 14,
+                              color: theme.primary,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              _showPreview ? '代码' : '预览',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: theme.primary,
+                                fontFamily: 'TideFont',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
+                  // 复制按钮
+                  GestureDetector(
+                    onTap: () {
+                      Clipboard.setData(ClipboardData(text: widget.code));
+                      GlobalNotice.show('已复制到剪贴板');
+                    },
+                    child: Icon(
+                      Icons.content_copy_rounded,
+                      size: 16,
+                      color: theme.textWeak,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  // 保存按钮
+                  GestureDetector(
+                    onTap: () => _saveFile(),
+                    child: Icon(
+                      Icons.save_alt_rounded,
+                      size: 16,
+                      color: theme.textWeak,
+                    ),
+                  ),
+                ],
               ),
             ),
-        ],
+            // 代码/预览内容
+            if (_showPreview && _supportsPreview)
+              GestureDetector(
+                onTap: () => _showFullscreenPreview(),
+                child: Container(
+                  height: 200,
+                  padding: const EdgeInsets.all(12),
+                  child: ClipRRect(
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(12),
+                      bottomRight: Radius.circular(12),
+                    ),
+                    child: _buildHtmlPreview(),
+                  ),
+                ),
+              )
+            else
+              Container(
+                padding: const EdgeInsets.all(12),
+                constraints: const BoxConstraints(maxHeight: 400),
+                child: SingleChildScrollView(
+                  child: NativeSelectableText(
+                    widget.code,
+                    nativeInteraction: true,
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontFamily: 'Courier',
+                      color: theme.textStrong,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

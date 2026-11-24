@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'media_storage_service.dart';
 import 'dart:async';
 import 'dart:io';
@@ -50,57 +51,87 @@ class _ChatVideoCardState extends State<ChatVideoCard> {
           button: true,
           label: '播放视频',
           child: GestureDetector(
-            onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(
-              builder: (_) => ChatVideoPlayerPage(path: widget.path),
-            )),
-            child: Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              width: width,
-              height: width / ratio,
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: const Color(0xFF191C20),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: Colors.white.withValues(alpha: .15)),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ChatVideoPlayerPage(path: widget.path),
               ),
-              child: Stack(fit: StackFit.expand, children: [
-                if (poster != null)
-                  Image.file(File(poster.path),
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink()),
-                const DecoratedBox(
-                    decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.transparent, Color(0x66000000)]),
-                )),
-                Center(
-                    child: Container(
-                  width: 48,
-                  height: 48,
-                  decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.black.withValues(alpha: .3),
-                      border: Border.all(
-                          color: Colors.white.withValues(alpha: .65))),
-                  child: const Icon(Icons.play_arrow_rounded,
-                      color: Colors.white, size: 34),
-                )),
-                const Positioned(
-                    left: 12,
-                    bottom: 10,
-                    child: Row(children: [
-                      Icon(Icons.videocam_rounded,
-                          color: Colors.white, size: 16),
-                      SizedBox(width: 5),
-                      Text('视频',
-                          style: TextStyle(
+            ),
+            child: tideAppearanceSurface(
+              context,
+              'card.video',
+              Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                width: width,
+                height: width / ratio,
+                clipBehavior: Clip.antiAlias,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF191C20),
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                    color: Colors.white.withValues(alpha: .15),
+                  ),
+                ),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    if (poster != null)
+                      Image.file(
+                        File(poster.path),
+                        fit: BoxFit.contain,
+                        errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                      ),
+                    const DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0x66000000)],
+                        ),
+                      ),
+                    ),
+                    Center(
+                      child: Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: Colors.black.withValues(alpha: .3),
+                          border: Border.all(
+                            color: Colors.white.withValues(alpha: .65),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.play_arrow_rounded,
+                          color: Colors.white,
+                          size: 34,
+                        ),
+                      ),
+                    ),
+                    const Positioned(
+                      left: 12,
+                      bottom: 10,
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.videocam_rounded,
+                            color: Colors.white,
+                            size: 16,
+                          ),
+                          SizedBox(width: 5),
+                          Text(
+                            '视频',
+                            style: TextStyle(
                               color: Colors.white,
                               fontSize: 12,
-                              fontWeight: FontWeight.w600)),
-                    ])),
-              ]),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
         );

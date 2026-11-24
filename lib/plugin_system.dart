@@ -1,3 +1,4 @@
+import 'plugin_interface_theme.dart';
 import 'package:crypto/crypto.dart';
 import 'plugin_operation.dart';
 import 'dart:async';
@@ -30,6 +31,9 @@ class TidePluginPackage {
 class PluginSystem {
   PluginSystem._();
   static final instance = PluginSystem._();
+  final _interfaceThemeChanges = StreamController<void>.broadcast();
+  Stream<void> get interfaceThemeChanges => _interfaceThemeChanges.stream;
+
   static const _secureStorage = FlutterSecureStorage();
   static final _validId = RegExp(
     r'^[a-z][a-z0-9_.-]{2,63}$',
@@ -104,6 +108,10 @@ class PluginSystem {
     String zipPath, {
     bool update = false,
     String? expectedId,
+    String? marketSource,
+    Future<void> Function()? beforeSwap,
+    Future<void> Function(TidePluginPackage)? verifyUpdate,
+    Future<void> Function()? stopCandidate,
     PluginOperation? operation,
   }) => _transaction((root) async {
     operation?.check();
@@ -115,7 +123,8 @@ class PluginSystem {
     final archive = await _decodeArchive(bytes, operation);
     operation?.check();
     final manifest = Map<String, dynamic>.from(archive.manifest)
-      ..remove(pluginLaunchEnabledOrderKey);
+      ..remove(pluginLaunchEnabledOrderKey)
+      ..remove(pluginThemeOrderKey);
     manifest['_installedPackage'] = {
       'source': 'local',
       'sha256': sha256.convert(bytes).toString(),
@@ -128,11 +137,27 @@ class PluginSystem {
     final rows = await DBManager().queryPlugins();
     final previous = rows.where((row) => row['id'] == id).firstOrNull;
     final launch = pluginLaunchDeclaration(manifest) != null;
-    if (launch && update && previous != null && previous['enabled'] == 1) {
-      final priorOrder = _launchOrder(
-        jsonDecode(previous['manifest_json'] as String),
+    final enabled = update && previous?['enabled'] == 1;
+    final customTheme = _hasInterfaceTheme(manifest);
+    if (customTheme && enabled) {
+      final old = jsonDecode(previous!['manifest_json'] as String);
+      final order = _themeOrder(old);
+      manifest[pluginThemeOrderKey] = order > 0 ? order : _nextThemeOrder(rows);
+    }
+    if (launch && enabled) {
+      var order = _launchOrder(
+        jsonDecode(previous!['manifest_json'] as String),
       );
-      if (priorOrder > 0) manifest[pluginLaunchEnabledOrderKey] = priorOrder;
+      if (order == 0) {
+        order = DateTime.now().microsecondsSinceEpoch;
+        for (final row in rows.where((row) => row['enabled'] == 1)) {
+          final other = _launchOrder(
+            jsonDecode(row['manifest_json'] as String),
+          );
+          if (other >= order) order = other + 1;
+        }
+      }
+      manifest[pluginLaunchEnabledOrderKey] = order;
     }
     final target = Directory(p.join(root.path, id));
     final existed = await target.exists();
@@ -142,17 +167,22 @@ class PluginSystem {
     if (update && (previous == null || !existed)) {
       throw StateError('待更新插件不存在或文件缺失');
     }
-    if (update) await PluginCoordinator.invalidate(id);
     final staging = await root.createTemp('$id.installing-');
     final backupName = '${p.basename(staging.path)}.backup';
     var journaled = false;
     var committed = false;
+    var checkingCandidate = false;
     try {
       for (final entry in archive.files.entries) {
         operation?.check();
         final out = File(p.join(staging.path, entry.key));
         await out.parent.create(recursive: true);
         await out.writeAsBytes(entry.value, flush: true);
+      }
+      operation?.check();
+      if (update) {
+        await beforeSwap?.call();
+        await PluginCoordinator.invalidate(id);
       }
       operation?.beginCommit();
       final marker = DateTime.now().microsecondsSinceEpoch;
@@ -169,6 +199,14 @@ class PluginSystem {
       journaled = true;
       if (existed) await target.rename(p.join(root.path, backupName));
       await staging.rename(target.path);
+      if (enabled && verifyUpdate != null) {
+        // Keep the old DB marker until activation succeeds so recovery restores
+        // the old directory after a crash or a cancelled candidate startup.
+        operation?.endCommit();
+        checkingCandidate = true;
+        await verifyUpdate(TidePluginPackage(manifest, target));
+        operation?.beginCommit();
+      }
       await DBManager().savePlugin({
         'id': id,
         'name': manifest['name'],
@@ -176,17 +214,28 @@ class PluginSystem {
         'description': manifest['description'] ?? '',
         'author': manifest['author'] ?? '',
         'manifest_json': encodedManifest,
-        'enabled': 0,
+        'enabled': enabled ? 1 : 0,
         'updated_at': marker,
-      });
+      }, marketSource: marketSource);
       committed = true;
+      if (customTheme ||
+          (previous != null &&
+              _hasInterfaceTheme(
+                jsonDecode(previous['manifest_json'] as String),
+              ))) {
+        _interfaceThemeChanges.add(null);
+      }
       // Retain a committed journal if backup cleanup fails.
       try {
         await _recover(root);
       } catch (_) {}
     } catch (_) {
       if (journaled && !committed) {
-        await _recover(root);
+        try {
+          if (checkingCandidate && stopCandidate != null) await stopCandidate();
+        } finally {
+          await _recover(root);
+        }
       } else if (!journaled && await staging.exists()) {
         await staging.delete(recursive: true);
       }
@@ -203,6 +252,49 @@ class PluginSystem {
         : null;
     return value is int && value > 0 ? value : 0;
   }
+
+  static bool _hasInterfaceTheme(Map<String, dynamic> manifest) {
+    final appearance = manifest['appearance'];
+    return appearance is Map && appearance.containsKey('interfaceTheme');
+  }
+
+  static int _themeOrder(Map<String, dynamic> manifest) {
+    final order = manifest[pluginThemeOrderKey];
+    return order is int && order > 0 ? order : 0;
+  }
+
+  static int _nextThemeOrder(List<Map<String, dynamic>> rows) {
+    var order = DateTime.now().microsecondsSinceEpoch;
+    for (final row in rows.where((row) => row['enabled'] == 1)) {
+      final previous = _themeOrder(jsonDecode(row['manifest_json'] as String));
+      if (previous >= order) order = previous + 1;
+    }
+    return order;
+  }
+
+  Future<TidePluginPackage?> interfaceThemePackage() => _transaction((
+    root,
+  ) async {
+    final rows = await DBManager().queryPlugins();
+    TidePluginPackage? selected;
+    var order = -1;
+    for (final row in rows.where((row) => row['enabled'] == 1)) {
+      final manifest =
+          jsonDecode(row['manifest_json'] as String) as Map<String, dynamic>;
+      if (!_hasInterfaceTheme(manifest)) continue;
+      final id = row['id'] as String;
+      _checkId(id);
+      final candidate = _themeOrder(manifest);
+      if (candidate > order ||
+          (candidate == order && id.compareTo(selected!.id) < 0)) {
+        final directory = Directory(p.join(root.path, id));
+        if (!await directory.exists()) continue;
+        selected = TidePluginPackage(manifest, directory);
+        order = candidate;
+      }
+    }
+    return selected;
+  });
 
   Future<TidePluginPackage?> launchAnimationPackage() => _transaction((
     root,
@@ -238,6 +330,7 @@ class PluginSystem {
     final rows = await db.queryPlugins();
     final row = rows.where((row) => row['id'] == id).firstOrNull;
     String? manifestJson;
+    var changesTheme = false;
     if (row != null) {
       final manifest =
           jsonDecode(row['manifest_json'] as String) as Map<String, dynamic>;
@@ -256,14 +349,25 @@ class PluginSystem {
         }
         manifestJson = jsonEncode(manifest);
       }
+      if (_hasInterfaceTheme(manifest)) {
+        changesTheme = true;
+        if (enabled && row['enabled'] != 1) {
+          manifest[pluginThemeOrderKey] = _nextThemeOrder(rows);
+        } else if (!enabled) {
+          manifest.remove(pluginThemeOrderKey);
+        }
+        manifestJson = jsonEncode(manifest);
+      }
     }
     await db.setPluginEnabled(id, enabled, manifestJson: manifestJson);
+    if (changesTheme) _interfaceThemeChanges.add(null);
   });
   Future<void> delete(String id) => _transaction((root) async {
     _checkId(id);
     await PluginCoordinator.invalidate(id);
     await _journal(root, {'op': 'delete', 'id': id});
     await _recover(root);
+    _interfaceThemeChanges.add(null);
   });
   String _configKey(String id) => 'plugin_config_$id';
   Future<void> saveConfig(String id, Map<String, dynamic> values) =>

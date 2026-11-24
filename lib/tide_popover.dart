@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'theme.dart';
@@ -18,7 +19,6 @@ Future<T?> showTidePopover<T>({
   final trigger = context.findRenderObject()! as RenderBox;
   final anchor =
       trigger.localToGlobal(Offset.zero, ancestor: overlay) & trigger.size;
-  final theme = TideTheme.of(context);
   return showGeneralDialog<T>(
     context: context,
     barrierDismissible: true,
@@ -57,17 +57,28 @@ Future<T?> showTidePopover<T>({
               child: Transform.scale(
                 scale: 0.08 + 0.92 * t,
                 child: Material(
-                  color: backgroundColor ?? theme.surface,
+                  color:
+                      tideAppearanceFill(context, 'dialog.popover') ??
+                      backgroundColor ??
+                      TideTheme.of(context).surface,
                   clipBehavior: Clip.antiAlias,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(radius),
                     side: BorderSide(
-                      color: theme.textStrong.withValues(alpha: 0.08),
+                      color: TideTheme.of(
+                        context,
+                      ).textStrong.withValues(alpha: 0.08),
                     ),
                   ),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    child: child,
+                  child: tideAppearanceSurface(
+                    context,
+                    'dialog.popover',
+                    SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: child,
+                    ),
+                    radius: BorderRadius.circular(radius),
+                    paintFill: false,
                   ),
                 ),
               ),

@@ -1,3 +1,4 @@
+import 'tide_appearance_surface.dart';
 import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
 import 'telegram_stamped_text.dart';
 import 'messaging_voice_message.dart';
@@ -15,6 +16,9 @@ import 'chat_message_debounce.dart';
 import 'photo_image_provider.dart';
 import 'chat_image.dart';
 import 'tide_popover.dart';
+import 'plugin_message_action.dart';
+import 'plugin_service.dart';
+import 'plugin_system.dart' show TidePluginPackage;
 import 'video_input.dart';
 import 'video_source_context.dart';
 import 'chat_video.dart';
@@ -193,38 +197,42 @@ class _StableLinkPreviewCardState extends State<_StableLinkPreviewCard> {
   }
 
   Widget _previewLoading(TideTheme theme) {
-    return Container(
-      constraints: BoxConstraints(
-        maxWidth: MediaQuery.sizeOf(context).width * .75,
-      ),
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.buttonSecondary,
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 16,
-            height: 16,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: theme.textWeak,
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Text(
-              '正在加载链接预览...',
-              style: TextStyle(
-                fontSize: 12,
+    return tideAppearanceSurface(
+      context,
+      'card.link',
+      Container(
+        constraints: BoxConstraints(
+          maxWidth: MediaQuery.sizeOf(context).width * .75,
+        ),
+        margin: const EdgeInsets.only(bottom: 8),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: theme.buttonSecondary,
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
                 color: theme.textWeak,
-                fontFamily: 'TideFont',
               ),
             ),
-          ),
-        ],
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '正在加载链接预览...',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: theme.textWeak,
+                  fontFamily: 'TideFont',
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -4231,46 +4239,140 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                     ),
                   ),
                 ),
-          child: Container(
-            width: double.infinity,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: Colors.black.withValues(alpha: theme.isDark ? .46 : .72),
-              borderRadius: BorderRadius.circular(7),
-              border: Border.all(
-                color: failed
-                    ? Colors.red.shade400
-                    : Colors.white.withValues(alpha: .12),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  failed ? Icons.error_outline_rounded : Icons.call_end_rounded,
-                  size: 17,
-                  color: failed ? Colors.red.shade300 : Colors.white70,
+          child: tideAppearanceSurface(
+            context,
+            'card.voiceCall',
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: theme.isDark ? .46 : .72),
+                borderRadius: BorderRadius.circular(7),
+                border: Border.all(
+                  color: failed
+                      ? Colors.red.shade400
+                      : Colors.white.withValues(alpha: .12),
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    failed ? '通话已结束 · 摘要未生成' : '通话已结束 · $durationText',
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontFamily: 'TideFont',
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    failed
+                        ? Icons.error_outline_rounded
+                        : Icons.call_end_rounded,
+                    size: 17,
+                    color: failed ? Colors.red.shade300 : Colors.white70,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      failed ? '通话已结束 · 摘要未生成' : '通话已结束 · $durationText',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontFamily: 'TideFont',
+                      ),
                     ),
                   ),
-                ),
-                if (!failed)
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    color: Colors.white70,
-                  ),
-              ],
+                  if (!failed)
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.white70,
+                    ),
+                ],
+              ),
             ),
+            opaque: true,
           ),
         ),
       ),
     );
+  }
+
+  bool _pluginMessageActionRunning = false;
+
+  Future<List<({TidePluginPackage pack, PluginMessageAction action})>>
+  _pluginMessageActions(Map<String, dynamic> message) async {
+    final botId = _bot['id']?.toString();
+    if (botId == null ||
+        botId.isEmpty ||
+        PluginMessageAction.payload(message) == null) {
+      return const [];
+    }
+    try {
+      return await PluginService.instance.messageActions(botId);
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  Future<void> _choosePluginMessageAction(
+    Map<String, dynamic> message,
+    List<({TidePluginPackage pack, PluginMessageAction action})> actions,
+  ) async {
+    if (!mounted || _pluginMessageActionRunning) return;
+    final botId = _bot['id']?.toString();
+    if (botId == null || botId.isEmpty) return;
+    _pluginMessageActionRunning = true;
+    try {
+      final index = await showTideSheet<int>(
+        context: context,
+        child: Builder(
+          builder: (ctx) => ListView.builder(
+            itemCount: actions.length + 1,
+            itemBuilder: (_, i) {
+              if (i == 0) {
+                return const ListTile(
+                  title: Text('插件操作'),
+                  subtitle: Text('仅将所选消息的文本交给你选择的插件'),
+                );
+              }
+              final item = actions[i - 1];
+              return ListTile(
+                leading: const Icon(Icons.extension_outlined),
+                title: Text(item.action.label),
+                subtitle: Text(item.pack.name),
+                onTap: () => Navigator.pop(ctx, i - 1),
+              );
+            },
+          ),
+        ),
+      );
+      if (index == null || !mounted || _bot['id']?.toString() != botId) return;
+      final selected = actions[index];
+      GlobalNotice.show('正在执行${selected.action.label}…');
+      final result = await PluginService.instance.runMessageAction(
+        selected.pack,
+        selected.action.id,
+        botId,
+        message,
+      );
+      if (!mounted || _bot['id']?.toString() != botId) return;
+      if (result == null || result.isEmpty) {
+        GlobalNotice.show('插件操作已完成');
+      } else {
+        await showTideDialog<void>(
+          context: context,
+          builder: (ctx) => TideDialogSurface(
+            maxHeightFactor: .65,
+            title: Text(selected.action.label),
+            content: SingleChildScrollView(child: SelectableText(result)),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: Text(
+                  '关闭',
+                  style: TextStyle(color: TideTheme.of(ctx).primary),
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+    } catch (_) {
+      if (mounted) GlobalNotice.show('插件操作失败，请重试');
+    } finally {
+      _pluginMessageActionRunning = false;
+    }
   }
 
   // ========== 长按消息 ==========
@@ -4284,10 +4386,12 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final retry =
         msg['role'] == 'user' &&
         msg['error_log']?.toString().isNotEmpty == true;
+    final actions = await _pluginMessageActions(msg);
+    if (!mounted || !anchor.mounted) return;
     final action = await showTidePopover<String>(
       context: anchor,
       preferAbove: true,
-      width: retry ? 192 : 128,
+      width: 64.0 * (2 + (retry ? 1 : 0) + (actions.isEmpty ? 0 : 1)),
       backgroundColor: const Color(0xFF4C4C4C),
       radius: 7,
       builder: (menuContext) => Row(
@@ -4295,6 +4399,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
           for (final item in [
             (id: 'copy', label: '复制', icon: Icons.copy_outlined),
             if (retry) (id: 'retry', label: '重发', icon: Icons.refresh),
+            if (actions.isNotEmpty)
+              (id: 'plugin', label: '插件', icon: Icons.extension_outlined),
             (id: 'delete', label: '删除', icon: Icons.delete_outline),
           ])
             Expanded(
@@ -4327,6 +4433,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       await Clipboard.setData(
         ClipboardData(text: msg['content']?.toString() ?? ''),
       );
+    } else if (action == 'plugin') {
+      await _choosePluginMessageAction(msg, actions);
     } else if (action == 'retry') {
       await _retryMessage(msg);
     } else if (action == 'delete') {
@@ -4340,7 +4448,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     }
   }
 
-  void _msgLongPress(Map<String, dynamic> msg, {String? anchorMessageId}) {
+  Future<void> _msgLongPress(
+    Map<String, dynamic> msg, {
+    String? anchorMessageId,
+  }) async {
     if (TideTheme.of(context).isTelegram) {
       _telegramMessageMenu(msg, anchorMessageId: anchorMessageId);
       return;
@@ -4349,6 +4460,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       _wechatMessageMenu(msg, anchorMessageId: anchorMessageId);
       return;
     }
+    final actions = await _pluginMessageActions(msg);
+    if (!mounted) return;
     final text = msg['content']?.toString() ?? '';
     showTideSheet(
       context: context,
@@ -4392,6 +4505,21 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 onTap: () async {
                   Navigator.pop(sheetContext);
                   await _retryMessage(msg);
+                },
+              ),
+            if (actions.isNotEmpty)
+              ListTile(
+                leading: Icon(
+                  Icons.extension_outlined,
+                  color: TideTheme.of(sheetContext).primary,
+                ),
+                title: const Text(
+                  '插件操作',
+                  style: TextStyle(fontFamily: 'TideFont'),
+                ),
+                onTap: () {
+                  Navigator.pop(sheetContext);
+                  unawaited(_choosePluginMessageAction(msg, actions));
                 },
               ),
             ListTile(
@@ -4446,30 +4574,36 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         ? '原消息'
         : (original['role'] == 'user' ? '你' : _bot['name']?.toString() ?? 'TA');
     final preview = missing ? '[原消息已删除]' : _replyPreview(original);
-    return Container(
-      width: double.infinity,
-      margin: const EdgeInsets.only(bottom: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
-      decoration: BoxDecoration(
-        color: isUser
-            ? Colors.white.withValues(alpha: 0.16)
-            : TideTheme.of(context).surfaceVariant,
-        borderRadius: BorderRadius.circular(10),
-        border: Border(
-          left: BorderSide(
-            color: isUser ? Colors.white70 : TideTheme.of(context).primary,
-            width: 3,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: tideAppearanceSurface(
+        context,
+        'card',
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 6),
+          decoration: BoxDecoration(
+            color: isUser
+                ? Colors.white.withValues(alpha: 0.16)
+                : TideTheme.of(context).surfaceVariant,
+            borderRadius: BorderRadius.circular(10),
+            border: Border(
+              left: BorderSide(
+                color: isUser ? Colors.white70 : TideTheme.of(context).primary,
+                width: 3,
+              ),
+            ),
           ),
-        ),
-      ),
-      child: Text(
-        '$author：$preview',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          fontSize: 12,
-          color: isUser ? Colors.white : TideTheme.of(context).textWeak,
-          fontFamily: 'TideFont',
+          child: Text(
+            '$author：$preview',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 12,
+              color: isUser ? Colors.white : TideTheme.of(context).textWeak,
+              fontFamily: 'TideFont',
+            ),
+          ),
         ),
       ),
     );
@@ -4617,11 +4751,14 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         ? theme.globalBackground
         : null;
     _syncHeaderColor(path);
-    final background = _headerSample ?? theme.surfaceVariant;
+    final background =
+        tideAppearanceFill(context, 'chat.header') ??
+        _headerSample ??
+        theme.surfaceVariant;
     final lightSurface = background.computeLuminance() > .45;
-    final foreground = lightSurface
-        ? const Color(0xFF24212A)
-        : const Color(0xFFF5F2F7);
+    final foreground =
+        theme.appearanceColor('textStrong') ??
+        (lightSurface ? const Color(0xFF24212A) : const Color(0xFFF5F2F7));
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
         statusBarColor: background,
@@ -4630,96 +4767,101 @@ class _ChatRoomPageState extends State<ChatRoomPage>
             : Brightness.light,
         statusBarBrightness: lightSurface ? Brightness.light : Brightness.dark,
       ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: background,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: .10),
-              blurRadius: 7,
-              offset: const Offset(0, 2),
-            ),
-          ],
-        ),
-        child: SafeArea(
-          bottom: false,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            child: Row(
-              children: [
-                GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Icon(
-                      Icons.arrow_back_ios_rounded,
-                      size: 20,
-                      color: foreground,
+      child: tideAppearanceSurface(
+        context,
+        'chat.header',
+        Container(
+          decoration: BoxDecoration(
+            color: background,
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: .10),
+                blurRadius: 7,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            bottom: false,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Row(
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Padding(
+                      padding: const EdgeInsets.all(8),
+                      child: Icon(
+                        Icons.arrow_back_ios_rounded,
+                        size: 20,
+                        color: foreground,
+                      ),
                     ),
                   ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _bot['name'] as String? ?? '',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.w700,
-                          fontFamily: 'TideFont',
-                          color: foreground,
-                        ),
-                      ),
-                      if (_typing)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
                         Text(
-                          '正在输入中...',
+                          _bot['name'] as String? ?? '',
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 11,
-                            color: theme.primary,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
                             fontFamily: 'TideFont',
+                            color: foreground,
                           ),
                         ),
-                    ],
+                        if (_typing)
+                          Text(
+                            '正在输入中...',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: theme.primary,
+                              fontFamily: 'TideFont',
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-                IconButton(
-                  icon: Icon(
-                    Icons.call_rounded,
-                    size: 20,
-                    color: theme.primary,
+                  IconButton(
+                    icon: Icon(
+                      Icons.call_rounded,
+                      size: 20,
+                      color: theme.primary,
+                    ),
+                    onPressed: _openCallPreparation,
                   ),
-                  onPressed: _openCallPreparation,
-                ),
-                IconButton(
-                  icon: Icon(
-                    Icons.delete_outline_rounded,
-                    size: 20,
-                    color: foreground.withValues(alpha: .72),
+                  IconButton(
+                    icon: Icon(
+                      Icons.delete_outline_rounded,
+                      size: 20,
+                      color: foreground.withValues(alpha: .72),
+                    ),
+                    onPressed: _showDeleteOptions,
                   ),
-                  onPressed: _showDeleteOptions,
-                ),
-                IconButton(
-                  icon: Icon(
-                    Icons.settings_rounded,
-                    size: 20,
-                    color: foreground.withValues(alpha: .72),
+                  IconButton(
+                    icon: Icon(
+                      Icons.settings_rounded,
+                      size: 20,
+                      color: foreground.withValues(alpha: .72),
+                    ),
+                    onPressed: _showModelSettings,
                   ),
-                  onPressed: _showModelSettings,
-                ),
-                IconButton(
-                  icon: Icon(
-                    Icons.menu_rounded,
-                    size: 20,
-                    color: foreground.withValues(alpha: .72),
+                  IconButton(
+                    icon: Icon(
+                      Icons.menu_rounded,
+                      size: 20,
+                      color: foreground.withValues(alpha: .72),
+                    ),
+                    onPressed: _showBotInfo,
                   ),
-                  onPressed: _showBotInfo,
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
+        paintFill: false,
       ),
     );
   }
@@ -4735,68 +4877,79 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         statusBarBrightness: theme.isDark ? Brightness.dark : Brightness.light,
       ),
       child: QqFrostedBar(
-        child: SafeArea(
-          bottom: false,
-          child: SizedBox(
-            height: _qqHeaderHeight,
-            child: Row(
-              children: [
-                IconButton(
-                  tooltip: '返回',
-                  onPressed: () => Navigator.pop(context),
-                  icon: Icon(
-                    Icons.arrow_back_ios_new,
-                    color: theme.textStrong,
-                    size: 20,
+        child: tideAppearanceSurface(
+          context,
+          'chat.header',
+          SafeArea(
+            bottom: false,
+            child: SizedBox(
+              height: _qqHeaderHeight,
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: '返回',
+                    onPressed: () => Navigator.pop(context),
+                    icon: Icon(
+                      Icons.arrow_back_ios_new,
+                      color: theme.textStrong,
+                      size: 20,
+                    ),
                   ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _bot['name']?.toString() ?? '',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: theme.textStrong, fontSize: 17),
-                      ),
-                      if (_typing)
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
                         Text(
-                          '正在输入中...',
-                          style: TextStyle(color: theme.textWeak, fontSize: 11),
+                          _bot['name']?.toString() ?? '',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: theme.textStrong,
+                            fontSize: 17,
+                          ),
                         ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  tooltip: '聊天设置',
-                  icon: Icon(Icons.more_horiz, color: theme.textStrong),
-                  onPressed: () {
-                    _inputFocus.unfocus();
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => QqChatSettingsPage(
-                          actions: [
-                            (
-                              title: '语音通话',
-                              onTap: () {
-                                _openCallPreparation();
-                              },
+                        if (_typing)
+                          Text(
+                            '正在输入中...',
+                            style: TextStyle(
+                              color: theme.textWeak,
+                              fontSize: 11,
                             ),
-                            (title: '聊天记录管理', onTap: _showDeleteOptions),
-                            (title: '模型设置', onTap: _showModelSettings),
-                            (title: '机器人信息', onTap: _showBotInfo),
-                          ],
+                          ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '聊天设置',
+                    icon: Icon(Icons.more_horiz, color: theme.textStrong),
+                    onPressed: () {
+                      _inputFocus.unfocus();
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => QqChatSettingsPage(
+                            actions: [
+                              (
+                                title: '语音通话',
+                                onTap: () {
+                                  _openCallPreparation();
+                                },
+                              ),
+                              (title: '聊天记录管理', onTap: _showDeleteOptions),
+                              (title: '模型设置', onTap: _showModelSettings),
+                              (title: '机器人信息', onTap: _showBotInfo),
+                            ],
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(width: 6),
-              ],
+                      );
+                    },
+                  ),
+                  const SizedBox(width: 6),
+                ],
+              ),
             ),
           ),
+          material: 'frosted',
         ),
       ),
     );
@@ -4833,100 +4986,109 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       ),
     );
     return QqFrostedBar(
-      child: SafeArea(
-        top: false,
-        bottom: !_emojiPanelMounted,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 5, 12, 0),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
-                _attachmentPreview(theme),
-              if (_pendingExpression != null) _pendingExpressionPreview(theme),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Expanded(
-                    child: Container(
-                      constraints: const BoxConstraints(minHeight: 34),
-                      decoration: BoxDecoration(
-                        color: theme.surface,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: TextField(
-                        contextMenuBuilder: androidTextContextMenu,
-                        focusNode: _inputFocus,
-                        controller: _msgC,
-                        minLines: 1,
-                        maxLines: 4,
-                        style: TextStyle(color: theme.textStrong, fontSize: 16),
-                        decoration: InputDecoration(
-                          filled: false,
-                          border: InputBorder.none,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          hintText: _isRecording
-                              ? '正在录音 $_recSecs 秒，再次点击结束'
-                              : '',
-                          hintStyle: TextStyle(
-                            fontSize: 12,
-                            color: theme.textWeak,
+      child: tideAppearanceSurface(
+        context,
+        'chat.input',
+        SafeArea(
+          top: false,
+          bottom: !_emojiPanelMounted,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 5, 12, 0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
+                  _attachmentPreview(theme),
+                if (_pendingExpression != null)
+                  _pendingExpressionPreview(theme),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Expanded(
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 34),
+                        decoration: BoxDecoration(
+                          color: theme.surface,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: TextField(
+                          contextMenuBuilder: androidTextContextMenu,
+                          focusNode: _inputFocus,
+                          controller: _msgC,
+                          minLines: 1,
+                          maxLines: 4,
+                          style: TextStyle(
+                            color: theme.textStrong,
+                            fontSize: 16,
                           ),
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 6,
+                          decoration: InputDecoration(
+                            filled: false,
+                            border: InputBorder.none,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            hintText: _isRecording
+                                ? '正在录音 $_recSecs 秒，再次点击结束'
+                                : '',
+                            hintStyle: TextStyle(
+                              fontSize: 12,
+                              color: theme.textWeak,
+                            ),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 6,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton(
-                    onPressed: canSend ? _sendFromComposer : null,
-                    style: FilledButton.styleFrom(
-                      backgroundColor: qqBlue,
-                      disabledBackgroundColor: qqBlue.withValues(alpha: .48),
-                      foregroundColor: Colors.white,
-                      disabledForegroundColor: Colors.white70,
-                      minimumSize: const Size(80, 34),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                    const SizedBox(width: 8),
+                    FilledButton(
+                      onPressed: canSend ? _sendFromComposer : null,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: qqBlue,
+                        disabledBackgroundColor: qqBlue.withValues(alpha: .48),
+                        foregroundColor: Colors.white,
+                        disabledForegroundColor: Colors.white70,
+                        minimumSize: const Size(80, 34),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
                       ),
+                      child: const Text('发送'),
                     ),
-                    child: const Text('发送'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 2),
-              Row(
-                children: [
-                  tool(
-                    'mic',
-                    _isRecording ? '结束录音' : '录音',
-                    !_isRecording && _sendVoiceCooldown.isBlocked
-                        ? null
-                        : _toggleRec,
-                    active: _isRecording,
-                  ),
-                  tool('photo', '选择图片', () => _pickMediaSource('img')),
-                  tool('camera', '拍照', () => _pickMediaSource('camera')),
-                  tool('video', '上传视频', () => _pickMediaSource('video')),
-                  tool(
-                    'smile',
-                    '表情',
-                    _toggleEmojiPanel,
-                    active: _showEmojiPanel,
-                  ),
-                  tool('file', '上传文件', () => _pickMediaSource('file')),
-                ],
-              ),
-            ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    tool(
+                      'mic',
+                      _isRecording ? '结束录音' : '录音',
+                      !_isRecording && _sendVoiceCooldown.isBlocked
+                          ? null
+                          : _toggleRec,
+                      active: _isRecording,
+                    ),
+                    tool('photo', '选择图片', () => _pickMediaSource('img')),
+                    tool('camera', '拍照', () => _pickMediaSource('camera')),
+                    tool('video', '上传视频', () => _pickMediaSource('video')),
+                    tool(
+                      'smile',
+                      '表情',
+                      _toggleEmojiPanel,
+                      active: _showEmojiPanel,
+                    ),
+                    tool('file', '上传文件', () => _pickMediaSource('file')),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
+        material: 'frosted',
       ),
     );
   }
@@ -4935,94 +5097,104 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final theme = TideTheme.of(context);
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle(
-        statusBarColor: theme.wechatBar,
+        statusBarColor:
+            (tideAppearanceFill(context, 'chat.header') ?? theme.wechatBar),
         statusBarIconBrightness: theme.isDark
             ? Brightness.light
             : Brightness.dark,
         statusBarBrightness: theme.isDark ? Brightness.dark : Brightness.light,
       ),
-      child: ColoredBox(
-        color: theme.wechatBar,
-        child: SafeArea(
-          bottom: false,
-          child: Container(
-            height: 56,
-            decoration: BoxDecoration(
-              border: Border(
-                bottom: BorderSide(color: theme.divider, width: .5),
+      child: tideAppearanceSurface(
+        context,
+        'chat.header',
+        ColoredBox(
+          color:
+              (tideAppearanceFill(context, 'chat.header') ?? theme.wechatBar),
+          child: SafeArea(
+            bottom: false,
+            child: Container(
+              height: 56,
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: theme.divider, width: .5),
+                ),
               ),
-            ),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: 48,
-                  child: IconButton(
-                    tooltip: '返回',
-                    icon: Icon(
-                      Icons.arrow_back_ios_new,
-                      size: 22,
-                      color: theme.textStrong,
-                    ),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _bot['name']?.toString() ?? '',
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                          color: theme.textStrong,
-                        ),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 48,
+                    child: IconButton(
+                      tooltip: '返回',
+                      icon: Icon(
+                        Icons.arrow_back_ios_new,
+                        size: 22,
+                        color: theme.textStrong,
                       ),
-                      if (_typing)
-                        Text(
-                          '正在输入中...',
-                          style: TextStyle(fontSize: 11, color: theme.textWeak),
-                        ),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 48,
-                  child: IconButton(
-                    tooltip: '聊天信息',
-                    icon: Icon(
-                      Icons.more_horiz,
-                      color: theme.textStrong,
-                      size: 24,
+                      onPressed: () => Navigator.pop(context),
                     ),
-                    onPressed: () {
-                      _inputFocus.unfocus();
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => WechatChatInfoPage(
-                            actions: [
-                              (
-                                title: '语音通话',
-                                onTap: () {
-                                  _openCallPreparation();
-                                },
-                              ),
-                              (title: '聊天记录管理', onTap: _showDeleteOptions),
-                              (title: '模型设置', onTap: _showModelSettings),
-                              (title: '机器人信息', onTap: _showBotInfo),
-                            ],
+                  ),
+                  Expanded(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _bot['name']?.toString() ?? '',
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: theme.textStrong,
                           ),
                         ),
-                      );
-                    },
+                        if (_typing)
+                          Text(
+                            '正在输入中...',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: theme.textWeak,
+                            ),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  SizedBox(
+                    width: 48,
+                    child: IconButton(
+                      tooltip: '聊天信息',
+                      icon: Icon(
+                        Icons.more_horiz,
+                        color: theme.textStrong,
+                        size: 24,
+                      ),
+                      onPressed: () {
+                        _inputFocus.unfocus();
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => WechatChatInfoPage(
+                              actions: [
+                                (
+                                  title: '语音通话',
+                                  onTap: () {
+                                    _openCallPreparation();
+                                  },
+                                ),
+                                (title: '聊天记录管理', onTap: _showDeleteOptions),
+                                (title: '模型设置', onTap: _showModelSettings),
+                                (title: '机器人信息', onTap: _showBotInfo),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),
+        paintFill: false,
       ),
     );
   }
@@ -6259,8 +6431,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: isUser
-            ? TideTheme.of(context).primary
-            : TideTheme.of(context).bubbleAi,
+            ? theme.appearanceColor('bubbleUser') ?? theme.primary
+            : theme.bubbleAi,
         borderRadius: BorderRadius.circular(16),
       ),
       child: RichText(
@@ -6563,127 +6735,137 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 curve: Curves.easeOutCubic,
               ),
             ),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 54),
-          padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-          decoration: BoxDecoration(
-            color: theme.surfaceVariant,
-            borderRadius: BorderRadius.circular(27),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-                  child: _attachmentPreview(theme),
-                ),
-              if (_pendingExpression != null)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
-                  child: _pendingExpressionPreview(theme),
-                ),
-              Row(
-                children: [
-                  Builder(
-                    builder: (triggerContext) => IconButton(
-                      tooltip: '图片和文件',
-                      onPressed: () => _pickMedia(triggerContext),
-                      icon: Icon(
-                        Icons.add_rounded,
-                        size: 26,
-                        color: theme.iconMuted,
+        child: tideAppearanceSurface(
+          context,
+          'chat.input',
+          Container(
+            constraints: const BoxConstraints(minHeight: 54),
+            padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+            decoration: BoxDecoration(
+              color: theme.surfaceVariant,
+              borderRadius: BorderRadius.circular(27),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+                    child: _attachmentPreview(theme),
+                  ),
+                if (_pendingExpression != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+                    child: _pendingExpressionPreview(theme),
+                  ),
+                Row(
+                  children: [
+                    Builder(
+                      builder: (triggerContext) => IconButton(
+                        tooltip: '图片和文件',
+                        onPressed: () => _pickMedia(triggerContext),
+                        icon: Icon(
+                          Icons.add_rounded,
+                          size: 26,
+                          color: theme.iconMuted,
+                        ),
                       ),
                     ),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      contextMenuBuilder: androidTextContextMenu,
-                      focusNode: _inputFocus,
-                      controller: _msgC,
-                      minLines: 1,
-                      maxLines: 4,
-                      textInputAction: TextInputAction.newline,
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontFamily: 'TideFont',
-                        color: theme.textStrong,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: '发消息...',
-                        hintStyle: TextStyle(
-                          color: theme.textFaint,
-                          fontSize: 14,
+                    Expanded(
+                      child: TextField(
+                        contextMenuBuilder: androidTextContextMenu,
+                        focusNode: _inputFocus,
+                        controller: _msgC,
+                        minLines: 1,
+                        maxLines: 4,
+                        textInputAction: TextInputAction.newline,
+                        style: TextStyle(
+                          fontSize: 15,
                           fontFamily: 'TideFont',
+                          color: theme.textStrong,
                         ),
-                        border: InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 4,
-                          vertical: 10,
+                        decoration: InputDecoration(
+                          hintText: '发消息...',
+                          hintStyle: TextStyle(
+                            color: theme.textFaint,
+                            fontSize: 14,
+                            fontFamily: 'TideFont',
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 4,
+                            vertical: 10,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                  IconButton(
-                    tooltip: _showEmojiPanel ? '收起表情' : '表情',
-                    onPressed: _toggleEmojiPanel,
-                    icon: Icon(
-                      _showEmojiPanel
-                          ? Icons.keyboard_arrow_down_rounded
-                          : Icons.emoji_emotions_outlined,
-                      size: 23,
-                      color: _showEmojiPanel ? theme.primary : theme.iconMuted,
-                    ),
-                  ),
-                  SizedBox(
-                    width: 44,
-                    height: 44,
-                    child: AnimatedSwitcher(
-                      duration: const Duration(milliseconds: 180),
-                      transitionBuilder: (child, animation) => FadeTransition(
-                        opacity: animation,
-                        child: ScaleTransition(scale: animation, child: child),
+                    IconButton(
+                      tooltip: _showEmojiPanel ? '收起表情' : '表情',
+                      onPressed: _toggleEmojiPanel,
+                      icon: Icon(
+                        _showEmojiPanel
+                            ? Icons.keyboard_arrow_down_rounded
+                            : Icons.emoji_emotions_outlined,
+                        size: 23,
+                        color: _showEmojiPanel
+                            ? theme.primary
+                            : theme.iconMuted,
                       ),
-                      child: hasSendContent
-                          ? IconButton(
-                              key: const ValueKey('send'),
-                              tooltip: '发送',
-                              splashRadius: 22,
-                              onPressed: _sendFromComposer,
-                              icon: Container(
-                                width: 34,
-                                height: 34,
-                                decoration: BoxDecoration(
-                                  shape: BoxShape.circle,
-                                  color: theme.primary,
-                                ),
-                                child: const Icon(
-                                  Icons.arrow_upward_rounded,
-                                  size: 18,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            )
-                          : IconButton(
-                              key: const ValueKey('record'),
-                              tooltip: _isRecording ? '结束录音' : '录音',
-                              onPressed:
-                                  !_isRecording && _sendVoiceCooldown.isBlocked
-                                  ? null
-                                  : _toggleRec,
-                              icon: Icon(
-                                Icons.mic_rounded,
-                                size: 22,
-                                color: _isRecording
-                                    ? Colors.red
-                                    : theme.iconMuted,
-                              ),
-                            ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 180),
+                        transitionBuilder: (child, animation) => FadeTransition(
+                          opacity: animation,
+                          child: ScaleTransition(
+                            scale: animation,
+                            child: child,
+                          ),
+                        ),
+                        child: hasSendContent
+                            ? IconButton(
+                                key: const ValueKey('send'),
+                                tooltip: '发送',
+                                splashRadius: 22,
+                                onPressed: _sendFromComposer,
+                                icon: Container(
+                                  width: 34,
+                                  height: 34,
+                                  decoration: BoxDecoration(
+                                    shape: BoxShape.circle,
+                                    color: theme.primary,
+                                  ),
+                                  child: const Icon(
+                                    Icons.arrow_upward_rounded,
+                                    size: 18,
+                                    color: Colors.white,
+                                  ),
+                                ),
+                              )
+                            : IconButton(
+                                key: const ValueKey('record'),
+                                tooltip: _isRecording ? '结束录音' : '录音',
+                                onPressed:
+                                    !_isRecording &&
+                                        _sendVoiceCooldown.isBlocked
+                                    ? null
+                                    : _toggleRec,
+                                icon: Icon(
+                                  Icons.mic_rounded,
+                                  size: 22,
+                                  color: _isRecording
+                                      ? Colors.red
+                                      : theme.iconMuted,
+                                ),
+                              ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -6697,137 +6879,146 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         _pendingImages.isNotEmpty ||
         _pendingDocuments.isNotEmpty ||
         _pendingExpression != null;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: theme.surfaceVariant,
-        border: Border(top: BorderSide(color: theme.divider, width: .5)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: _attachmentPreview(theme),
+    return tideAppearanceSurface(
+      context,
+      'chat.input',
+      DecoratedBox(
+        decoration: BoxDecoration(
+          color:
+              tideAppearanceFill(context, 'chat.input') ?? theme.surfaceVariant,
+          border: Border(top: BorderSide(color: theme.divider, width: .5)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (_pendingImages.isNotEmpty || _pendingDocuments.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: _attachmentPreview(theme),
+                  ),
+                if (_pendingExpression != null)
+                  Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: _pendingExpressionPreview(theme),
+                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 40,
+                        minHeight: 40,
+                      ),
+                      tooltip: _isRecording ? '结束录音' : '录音',
+                      onPressed: !_isRecording && _sendVoiceCooldown.isBlocked
+                          ? null
+                          : _toggleRec,
+                      icon: WechatIcon(
+                        kind: 'voice',
+                        size: 24,
+                        color: _isRecording ? Colors.red : theme.textStrong,
+                      ),
+                    ),
+                    Expanded(
+                      child: Container(
+                        constraints: const BoxConstraints(minHeight: 32),
+                        decoration: BoxDecoration(
+                          color: theme.surface,
+                          borderRadius: BorderRadius.circular(5),
+                        ),
+                        child: TextField(
+                          contextMenuBuilder: androidTextContextMenu,
+                          focusNode: _inputFocus,
+                          controller: _msgC,
+                          minLines: 1,
+                          maxLines: 4,
+                          textInputAction: TextInputAction.newline,
+                          style: TextStyle(
+                            fontSize: 15,
+                            color: theme.textStrong,
+                          ),
+                          decoration: InputDecoration(
+                            filled: false,
+                            enabledBorder: InputBorder.none,
+                            focusedBorder: InputBorder.none,
+                            hintText: _isRecording
+                                ? '正在录音 $_recSecs 秒，点击左侧结束'
+                                : '',
+                            hintStyle: TextStyle(
+                              fontSize: 12,
+                              color: theme.textWeak,
+                            ),
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      constraints: const BoxConstraints(
+                        minWidth: 40,
+                        minHeight: 40,
+                      ),
+                      tooltip: _showEmojiPanel ? '收起表情' : '表情',
+                      onPressed: _toggleEmojiPanel,
+                      icon: WechatIcon(
+                        kind: 'smile',
+                        size: 24,
+                        color: theme.textStrong,
+                      ),
+                    ),
+                    if (canSend)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3, right: 4),
+                        child: TextButton(
+                          onPressed: _sendFromComposer,
+                          style: TextButton.styleFrom(
+                            backgroundColor: theme.primary,
+                            foregroundColor: Colors.white,
+                            minimumSize: const Size(52, 36),
+                            padding: const EdgeInsets.symmetric(horizontal: 10),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(5),
+                            ),
+                          ),
+                          child: const Text('发送'),
+                        ),
+                      )
+                    else
+                      Builder(
+                        builder: (triggerContext) => IconButton(
+                          visualDensity: VisualDensity.compact,
+                          constraints: const BoxConstraints(
+                            minWidth: 40,
+                            minHeight: 40,
+                          ),
+                          tooltip: '图片和文件',
+                          onPressed: () => _pickMedia(triggerContext),
+                          icon: WechatIcon(
+                            kind: 'add',
+                            size: 24,
+                            color: theme.textStrong,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
-              if (_pendingExpression != null)
-                Padding(
-                  padding: const EdgeInsets.all(6),
-                  child: _pendingExpressionPreview(theme),
-                ),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(
-                      minWidth: 40,
-                      minHeight: 40,
-                    ),
-                    tooltip: _isRecording ? '结束录音' : '录音',
-                    onPressed: !_isRecording && _sendVoiceCooldown.isBlocked
-                        ? null
-                        : _toggleRec,
-                    icon: WechatIcon(
-                      kind: 'voice',
-                      size: 24,
-                      color: _isRecording ? Colors.red : theme.textStrong,
-                    ),
-                  ),
-                  Expanded(
-                    child: Container(
-                      constraints: const BoxConstraints(minHeight: 32),
-                      decoration: BoxDecoration(
-                        color: theme.surface,
-                        borderRadius: BorderRadius.circular(5),
-                      ),
-                      child: TextField(
-                        contextMenuBuilder: androidTextContextMenu,
-                        focusNode: _inputFocus,
-                        controller: _msgC,
-                        minLines: 1,
-                        maxLines: 4,
-                        textInputAction: TextInputAction.newline,
-                        style: TextStyle(fontSize: 15, color: theme.textStrong),
-                        decoration: InputDecoration(
-                          filled: false,
-                          enabledBorder: InputBorder.none,
-                          focusedBorder: InputBorder.none,
-                          hintText: _isRecording
-                              ? '正在录音 $_recSecs 秒，点击左侧结束'
-                              : '',
-                          hintStyle: TextStyle(
-                            fontSize: 12,
-                            color: theme.textWeak,
-                          ),
-                          border: InputBorder.none,
-                          isDense: true,
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints(
-                      minWidth: 40,
-                      minHeight: 40,
-                    ),
-                    tooltip: _showEmojiPanel ? '收起表情' : '表情',
-                    onPressed: _toggleEmojiPanel,
-                    icon: WechatIcon(
-                      kind: 'smile',
-                      size: 24,
-                      color: theme.textStrong,
-                    ),
-                  ),
-                  if (canSend)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3, right: 4),
-                      child: TextButton(
-                        onPressed: _sendFromComposer,
-                        style: TextButton.styleFrom(
-                          backgroundColor: theme.primary,
-                          foregroundColor: Colors.white,
-                          minimumSize: const Size(52, 36),
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(5),
-                          ),
-                        ),
-                        child: const Text('发送'),
-                      ),
-                    )
-                  else
-                    Builder(
-                      builder: (triggerContext) => IconButton(
-                        visualDensity: VisualDensity.compact,
-                        constraints: const BoxConstraints(
-                          minWidth: 40,
-                          minHeight: 40,
-                        ),
-                        tooltip: '图片和文件',
-                        onPressed: () => _pickMedia(triggerContext),
-                        icon: WechatIcon(
-                          kind: 'add',
-                          size: 24,
-                          color: theme.textStrong,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
+      paintFill: false,
     );
   }
 
@@ -7004,102 +7195,109 @@ class _SharedPostCardState extends State<_SharedPostCard> {
         : (isUser ? Colors.white.withValues(alpha: 0.76) : theme.textWeak);
     return GestureDetector(
       onTap: _deleted ? null : _open,
-      child: Container(
-        width: 245,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: theme.isWechat
-              ? (isUser ? theme.wechatOutgoing : theme.surface)
-              : (isUser
-                    ? theme.primary.withValues(alpha: 0.92)
-                    : theme.buttonSecondary),
-          borderRadius: BorderRadius.circular(theme.isWechat ? 5 : 16),
-        ),
-        child: _deleted
-            ? Text(
-                sharedPostDeletedUserCopy,
-                style: TextStyle(color: muted, fontFamily: 'TideFont'),
-              )
-            : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.dynamic_feed_rounded,
-                        size: 17,
-                        color: foreground,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          '分享的动态',
-                          style: TextStyle(
-                            color: foreground,
-                            fontWeight: FontWeight.w700,
-                            fontFamily: 'TideFont',
+      child: tideAppearanceSurface(
+        context,
+        'card.post',
+        Container(
+          width: 245,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: theme.isWechat
+                ? (isUser ? theme.wechatOutgoing : theme.surface)
+                : (isUser
+                      ? theme.primary.withValues(alpha: 0.92)
+                      : theme.buttonSecondary),
+            borderRadius: BorderRadius.circular(theme.isWechat ? 5 : 16),
+          ),
+          child: _deleted
+              ? Text(
+                  sharedPostDeletedUserCopy,
+                  style: TextStyle(color: muted, fontFamily: 'TideFont'),
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.dynamic_feed_rounded,
+                          size: 17,
+                          color: foreground,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '分享的动态',
+                            style: TextStyle(
+                              color: foreground,
+                              fontWeight: FontWeight.w700,
+                              fontFamily: 'TideFont',
+                            ),
                           ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      (author == null || author.isEmpty) ? '匿名' : author,
+                      style: TextStyle(
+                        color: foreground,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'TideFont',
+                      ),
+                    ),
+                    if (timestamp != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        fmtTime(timestamp),
+                        style: TextStyle(
+                          color: muted,
+                          fontSize: 11,
+                          fontFamily: 'TideFont',
                         ),
                       ),
                     ],
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    (author == null || author.isEmpty) ? '匿名' : author,
-                    style: TextStyle(
-                      color: foreground,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'TideFont',
-                    ),
-                  ),
-                  if (timestamp != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      fmtTime(timestamp),
-                      style: TextStyle(
-                        color: muted,
-                        fontSize: 11,
-                        fontFamily: 'TideFont',
-                      ),
-                    ),
-                  ],
-                  if (content.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      content,
-                      style: TextStyle(
-                        color: foreground,
-                        height: 1.35,
-                        fontFamily: 'TideFont',
-                      ),
-                    ),
-                  ],
-                  if (imageExists) ...[
-                    const SizedBox(height: 10),
-                    GestureDetector(
-                      onTap: () => widget.onPreviewImage(imagePath),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: SizedBox(
-                          width: 144,
-                          height: 144,
-                          child: Image.file(File(imagePath), fit: BoxFit.cover),
+                    if (content.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        content,
+                        style: TextStyle(
+                          color: foreground,
+                          height: 1.35,
+                          fontFamily: 'TideFont',
                         ),
                       ),
-                    ),
-                  ] else if (imagePath.isNotEmpty) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      '图片已失效或不可访问',
-                      style: TextStyle(
-                        color: muted,
-                        fontSize: 12,
-                        fontFamily: 'TideFont',
+                    ],
+                    if (imageExists) ...[
+                      const SizedBox(height: 10),
+                      GestureDetector(
+                        onTap: () => widget.onPreviewImage(imagePath),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: SizedBox(
+                            width: 144,
+                            height: 144,
+                            child: Image.file(
+                              File(imagePath),
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
+                    ] else if (imagePath.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        '图片已失效或不可访问',
+                        style: TextStyle(
+                          color: muted,
+                          fontSize: 12,
+                          fontFamily: 'TideFont',
+                        ),
+                      ),
+                    ],
                   ],
-                ],
-              ),
+                ),
+        ),
       ),
     );
   }

@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'daily_quote_service.dart';
 import 'db.dart';
 import 'theme.dart';
+import 'tide_appearance_surface.dart';
 import 'ui_components.dart';
 
 class ChatSidebarController extends ChangeNotifier {
@@ -544,18 +545,22 @@ class _ChatSidebarState extends State<ChatSidebar> {
     ),
   );
 
-  Widget _panel(TideTheme theme, Widget child) => Container(
-    width: double.infinity,
-    padding: const EdgeInsets.all(14),
-    decoration: BoxDecoration(
-      color: theme.primary,
-      borderRadius: BorderRadius.circular(20),
-    ),
-    child: DefaultTextStyle.merge(
-      style: const TextStyle(color: Colors.white),
-      child: IconTheme.merge(
-        data: const IconThemeData(color: Colors.white),
-        child: child,
+  Widget _panel(TideTheme theme, Widget child) => tideAppearanceSurface(
+    context,
+    'card',
+    Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: theme.primary,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(color: Colors.white),
+        child: IconTheme.merge(
+          data: const IconThemeData(color: Colors.white),
+          child: child,
+        ),
       ),
     ),
   );
