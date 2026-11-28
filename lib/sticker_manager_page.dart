@@ -2,6 +2,9 @@ import 'android_selection_menu.dart';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import 'platform_editor.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:path_provider/path_provider.dart';
@@ -23,11 +26,18 @@ class _StickerManagerPageState extends State<StickerManagerPage> {
   @override
   void initState() {
     super.initState();
+    PlatformEditor.stickersChanged.addListener(_load);
     _load();
   }
 
+  @override
+  void dispose() {
+    PlatformEditor.stickersChanged.removeListener(_load);
+    super.dispose();
+  }
+
   Future<void> _load() async {
-    final items = await DBManager().queryStickers();
+    final items = await DBManager().queryStickers(includeDisabled: true);
     if (mounted)
       setState(() {
         _items = items;
@@ -183,7 +193,7 @@ class _StickerManagerPageState extends State<StickerManagerPage> {
                         Positioned(
                             left: 7,
                             bottom: 7,
-                            child: Text(item['emotion']?.toString() ?? '',
+                            child: Text("${item['emotion'] ?? ''}${item['enabled'] == 0 ? '（停用）' : ''}",
                                 style: const TextStyle(
                                     color: Colors.white,
                                     fontFamily: 'TideFont',
@@ -191,14 +201,41 @@ class _StickerManagerPageState extends State<StickerManagerPage> {
                         Positioned(
                             right: 0,
                             top: 0,
-                            child: IconButton(
-                                icon: const Icon(Icons.close_rounded,
-                                    color: Colors.white),
-                                onPressed: () async {
-                                  await DBManager()
-                                      .deleteSticker(item['id'].toString());
-                                  _load();
-                                }))
+                            child: PopupMenuButton<String>(
+                              icon: const Icon(Icons.more_vert, color: Colors.white),
+                              onSelected: (action) async {
+                                final id = item['id'].toString();
+                                if (action == 'copy') {
+                                  await Clipboard.setData(ClipboardData(text: id));
+                                } else if (action == 'toggle') {
+                                  final database = await DBManager().database;
+                                  await database.update('stickers',
+                                    {'enabled': item['enabled'] == 0 ? 1 : 0},
+                                    where: 'id = ?', whereArgs: [id]);
+                                  PlatformEditor.stickersChanged.value++;
+                                } else if (action == 'delete') {
+                                  final approved = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('删除表情包？'),
+                                      actions: [
+                                        TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
+                                        TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('删除')),
+                                      ],
+                                    ),
+                                  );
+                                  if (approved == true) {
+                                    await DBManager().deleteSticker(id);
+                                    PlatformEditor.stickersChanged.value++;
+                                  }
+                                }
+                              },
+                              itemBuilder: (_) => [
+                                const PopupMenuItem(value: 'copy', child: Text('复制表情包编号')),
+                                PopupMenuItem(value: 'toggle', child: Text(item['enabled'] == 0 ? '启用' : '停用')),
+                                const PopupMenuItem(value: 'delete', child: Text('删除')),
+                              ],
+                            ))
                       ]);
                     }),
       ),

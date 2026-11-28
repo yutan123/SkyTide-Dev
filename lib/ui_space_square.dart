@@ -5,6 +5,8 @@ import 'bot_image_tool.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'chat_model_selection.dart';
 import 'dart:io';
 import 'dart:math';
 import 'package:image_picker/image_picker.dart';
@@ -726,11 +728,19 @@ class SquarePageState extends State<SquarePage>
           10,
         );
     final bots = await db.queryBots();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
+    bool hasChatModel(Map<String, Object?> bot) {
+      final id = bot['id']?.toString() ?? '';
+      return id.isNotEmpty &&
+          configuredChatProviderIds(bot, prefs.getString('backup_model_$id'))
+              .isNotEmpty;
+    }
     for (final bot in bots) {
-      final botId = bot['id']?.toString() ?? '';
-      if (botId.isEmpty || bot['chat_model']?.toString().isEmpty != false) {
+      if (!hasChatModel(bot)) {
         continue;
       }
+      final botId = bot['id'].toString();
       for (var index = 0; index < perDay; index++) {
         final marker = 'bot_post_date_${botId}_$index';
         if (await db.getKV(marker) == dayKey) continue;
@@ -854,7 +864,7 @@ class SquarePageState extends State<SquarePage>
             .where(
               (cb) =>
                   (cb['id']?.toString() ?? '') != botId &&
-                  (cb['chat_model']?.toString().isNotEmpty ?? false),
+                  hasChatModel(cb),
             )
             .toList();
         final shuffled = List<Map<String, dynamic>>.from(otherBots)

@@ -520,6 +520,7 @@ class DBManager {
         await _ensureColumns(db, 'mcp_servers', const {
           'description': "TEXT NOT NULL DEFAULT ''",
           'service_description': "TEXT NOT NULL DEFAULT ''",
+          'require_tool_approval': 'INTEGER NOT NULL DEFAULT 0',
         });
         // 只在首次打开或版本变更时执行完整修复，避免每次启动重复检查
         final needsRepair = await _shouldRepairSchema(db);
@@ -531,6 +532,12 @@ class DBManager {
         } else {
           await _ensureVoiceCallStorage(db);
         }
+        await _ensureColumns(db, 'stickers', const {
+          'enabled': 'INTEGER NOT NULL DEFAULT 1',
+        });
+        await _ensureColumns(db, 'memories', const {
+          'enabled': 'INTEGER NOT NULL DEFAULT 1',
+        });
         await _ensureColumns(db, 'skills', const {'bot_scope': 'TEXT'});
         await _ensureColumns(db, 'mcp_servers', const {'bot_scope': 'TEXT'});
         final normalized = await db.query(
@@ -1436,10 +1443,22 @@ class DBManager {
 
   Future<void> saveMcpTools(
     String serverId,
-    List<Map<String, dynamic>> tools,
-  ) async {
+    List<Map<String, dynamic>> tools, {
+    bool requireApproval = false,
+    String? expectedUrl,
+  }) async {
     final db = await database;
     await db.transaction((txn) async {
+      final server = (await txn.query(
+        'mcp_servers',
+        where: 'id = ?',
+        whereArgs: [serverId],
+        limit: 1,
+      )).firstOrNull;
+      if (server == null || (expectedUrl != null && server['url'] != expectedUrl)) {
+        throw StateError('MCP server changed');
+      }
+      final safeDefault = requireApproval || server['require_tool_approval'] == 1 ? 0 : 1;
       final previous = <String, int>{
         for (final row in await txn.query(
           'mcp_tools',
@@ -1464,13 +1483,16 @@ class DBManager {
           'name': name,
           'description': tool['description']?.toString() ?? '',
           'schema_json': jsonEncode(tool['inputSchema'] ?? {'type': 'object'}),
-          'enabled': previous[name] ?? 1,
+          'enabled': previous[name] ?? safeDefault,
           'discovered_at': now,
         }, conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await txn.update(
         'mcp_servers',
-        {'status': 'connected', 'error': null, 'updated_at': now},
+        {
+          'status': 'connected', 'error': null, 'updated_at': now,
+          if (requireApproval) 'require_tool_approval': 1,
+        },
         where: 'id = ?',
         whereArgs: [serverId],
       );
@@ -2133,11 +2155,18 @@ class DBManager {
   }
 
   // ================= 表情包素材池 =================
-  Future<List<Map<String, dynamic>>> queryStickers({String? emotion}) async {
+  Future<List<Map<String, dynamic>>> queryStickers({
+    String? emotion,
+    bool includeDisabled = false,
+  }) async {
     final db = await database;
     return db.query(
       'stickers',
-      where: emotion == null ? null : 'emotion = ?',
+      where: [
+        if (emotion != null) 'emotion = ?',
+        if (!includeDisabled) 'enabled = 1',
+        if (emotion == null && includeDisabled) '1 = 1',
+      ].join(' AND '),
       whereArgs: emotion == null ? null : [emotion],
       orderBy: 'created_at DESC',
     );
@@ -3038,10 +3067,14 @@ class DBManager {
     String? type,
     int? limit,
     bool includeExpired = false,
+    bool includeDisabled = false,
   }) async {
     final db = await database;
     final now = DateTime.now().millisecondsSinceEpoch;
-    final whereParts = <String>['bot_id = ?', 'COALESCE(is_deleted, 0) = 0'];
+    final whereParts = <String>[
+      'bot_id = ?', 'COALESCE(is_deleted, 0) = 0',
+      if (!includeDisabled) 'enabled = 1',
+    ];
     final whereArgs = <dynamic>[botId];
     if (type != null) {
       whereParts.add('type = ?');

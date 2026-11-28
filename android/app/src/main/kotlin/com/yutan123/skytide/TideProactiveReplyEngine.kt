@@ -23,11 +23,39 @@ object TideProactiveReplyEngine {
         if (stop == null) done() else stop(done)
     }
 
-    suspend fun generate(context: Context, botId: String, generation: String, due: String?): JSONObject = withContext(Dispatchers.Main) {
-        suspend fun allowed(): Boolean = withContext(Dispatchers.IO) {
-            TideStore.open(context).use { TideProactiveRequestGate.allowed(it, botId, generation, due) }
+    suspend fun generate(context: Context, botId: String, generation: String, due: String?): JSONObject =
+        runChat(context, botId, mapOf("kind" to "proactive", "generation" to generation, "due" to due)) {
+            withContext(Dispatchers.IO) {
+                TideStore.open(context).use { TideProactiveRequestGate.allowed(it, botId, generation, due) }
+            }
         }
-        check(allowed()) { "Proactive request interrupted by user activity" }
+
+    suspend fun generateFuture(context: Context, botId: String, prompt: String): JSONObject =
+        runChat(context, botId, mapOf("kind" to "future", "prompt" to prompt))
+
+    suspend fun generateVitals(context: Context, botId: String, reason: String, pending: String): JSONObject =
+        runChat(context, botId, mapOf("kind" to "vitals", "reason" to reason, "pending" to pending))
+
+    fun requireReply(context: Context, response: JSONObject): JSONObject {
+        if (TideBackgroundLog.enabled(context)) {
+            response.optJSONArray("request_logs")?.let { logs ->
+                for (index in 0 until logs.length()) {
+                    val entry = logs.optJSONObject(index) ?: continue
+                    TideBackgroundLog.add(context, entry.optString("message"), entry.optString("level", "BACKGROUND_CHAT"))
+                }
+            }
+        }
+        check(response.optBoolean("success")) { response.optString("error", "Background chat request failed") }
+        return response
+    }
+
+    private suspend fun runChat(
+        context: Context,
+        botId: String,
+        arguments: Map<String, String?>,
+        allowed: (suspend () -> Boolean)? = null
+    ): JSONObject = withContext(Dispatchers.Main) {
+        check(allowed?.invoke() != false) { "Proactive request interrupted by user activity" }
         val loader = FlutterInjector.instance().flutterLoader()
         loader.startInitialization(context.applicationContext)
         loader.ensureInitializationComplete(context.applicationContext, null)
@@ -48,7 +76,7 @@ object TideProactiveReplyEngine {
         channel.setMethodCallHandler { call, result ->
             if (call.method == "ready") {
                 result.success(null)
-                channel.invokeMethod("generate", mapOf("botId" to botId, "generation" to generation, "due" to due), object : MethodChannel.Result {
+                channel.invokeMethod("generate", arguments + ("botId" to botId), object : MethodChannel.Result {
                     override fun success(value: Any?) {
                         if (value is Map<*, *>) completed.complete(JSONObject(value))
                         else completed.completeExceptionally(IllegalStateException("Invalid proactive response"))
@@ -78,13 +106,15 @@ object TideProactiveReplyEngine {
             })
             android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({ finish() }, 1000)
         }
-        active[botId] = stop
-        val monitor = launch {
-            while (!completed.isCompleted) {
-                delay(200)
-                if (!allowed()) {
-                    stop {}
-                    break
+        if (allowed != null) active[botId] = stop
+        val monitor = allowed?.let { stillAllowed ->
+            launch {
+                while (!completed.isCompleted) {
+                    delay(200)
+                    if (!stillAllowed()) {
+                        stop {}
+                        break
+                    }
                 }
             }
         }
@@ -95,7 +125,7 @@ object TideProactiveReplyEngine {
             withTimeout(5 * 60 * 1000L) { completed.await() }
         } finally {
             if (active[botId] === stop) active.remove(botId)
-            monitor.cancel()
+            monitor?.cancel()
             channel.setMethodCallHandler(null)
             native.setMethodCallHandler(null)
             engine.destroy()

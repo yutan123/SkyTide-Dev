@@ -18,6 +18,7 @@ class PluginMediaContract {
     'background.send',
     'background.generate',
     'context.inject',
+    'platform.editor',
 
     'chat.send',
     'chat.read',

@@ -27,6 +27,7 @@ import 'android_selection_menu.dart';
 import 'send_voice_cooldown.dart';
 import 'chat_typing_state.dart';
 import 'default_chat_background.dart';
+import 'platform_editor.dart';
 import 'app_log_service.dart';
 import 'chat_content.dart';
 import 'chat_stream_pacing.dart';
@@ -263,6 +264,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     super.didChangeDependencies();
     final route = ModalRoute.of(context);
     if (route == _chatRoute) return;
+    PlatformEditor.robotChanged.removeListener(_onPlatformRobotChanged);
+    PlatformEditor.stickersChanged.removeListener(_onPlatformStickersChanged);
     AppState.chatRouteObserver.unsubscribe(this);
     _chatRoute = route;
     if (route != null) AppState.chatRouteObserver.subscribe(this, route);
@@ -450,6 +453,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _bot = Map.from(widget.botData);
+    PlatformEditor.robotChanged.addListener(_onPlatformRobotChanged);
+    PlatformEditor.stickersChanged.addListener(_onPlatformStickersChanged);
     _sendVoiceCooldown.addListener(_refreshVoiceCooldown);
     _highlightedMessageId = widget.initialMessageId;
     _msgC.addListener(_msgChanged);
@@ -580,6 +585,19 @@ class _ChatRoomPageState extends State<ChatRoomPage>
   }
 
   bool _chatBackgroundCleared = false;
+  void _onPlatformStickersChanged() {
+    unawaited(_loadStickers());
+  }
+
+  void _onPlatformRobotChanged() async {
+    final id = _bot['id']?.toString();
+    if (id == null || PlatformEditor.robotChanged.value != id) return;
+    final row = await DBManager().getBotById(id);
+    if (!mounted || row == null) return;
+    setState(() => _bot.addAll(row));
+    await _loadBg();
+  }
+
   Future<void> _loadBg() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -2055,14 +2073,6 @@ class _ChatRoomPageState extends State<ChatRoomPage>
           'AI_TRACE',
           '连续消息结算 bot=$botId messages=${userMessages.length} generation=$myGen',
         );
-        final cm = _bot['chat_model']?.toString().trim() ?? '';
-        if (cm.isEmpty) {
-          final providers = await DBManager().queryChatProviders();
-          if (providers.isEmpty) {
-            throw StateError('未配置聊天模型，请先在 API 设置中添加远程模型');
-          }
-        }
-
         final documentNotices = <String>[];
         final framePaths = <String>[];
         final sharedVideos = <String, String>{};
@@ -2131,12 +2141,8 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         if (myGen != _requestGen) return;
         for (final path in documents) {
           if (isVideoAttachment(path)) {
-            final prefs = await SharedPreferences.getInstance();
-            final modelId =
-                (prefs.getString('video_model_$botId') ??
-                        _bot['video_model']?.toString() ??
-                        '')
-                    .trim();
+            final bot = await DBManager().getBotById(botId);
+            final modelId = bot?['video_model']?.toString().trim() ?? '';
             try {
               AppLogService.instance.add(
                 'VIDEO',
@@ -2151,6 +2157,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                 videoId: videoId,
               );
               preparedVideos.add(prepared);
+              final prefs = await SharedPreferences.getInstance();
               final history = prefs.getStringList('video_history_$botId') ?? [];
               history.add(
                 json.encode({
@@ -2224,7 +2231,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
         );
         // AIManager reads persisted, role-typed history. Partially revealed UI
         // rows must never be reused as a model transcript.
-        debugPrint('[send] request start bot=$botId model=$cm');
+        debugPrint('[send] request start bot=$botId');
         final db = DBManager();
         final streamSetting =
             await db.getKV('streaming_output') ??
@@ -3398,63 +3405,49 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final providers = await DBManager().queryChatProviders();
     final sttProviders = await DBManager().querySttProviders();
     final ttsProviders = await DBManager().queryTtsProviders();
-    if (!mounted) return;
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     final botId = _bot['id'] as String;
-    // 当前选择（只读读取 DB，作为初始值；弹窗内实时状态交给 setSt 维护）
-    // 聊天模型必须由用户明确选择；不能因为列表有 provider 就静默选中第一个。
-    String curChat =
-        prefs.getString('chat_model_$botId') ??
-        ((_bot['chat_model'] as String?)?.trim() ?? '');
+    final db = DBManager();
+    final bot = await db.getBotById(botId);
+    final jarvisOn = (await db.getKV('jarvis_enabled')) == 'true';
+    if (!mounted || bot == null) return;
+    // These fields are also read from SQLite by the request paths.
+    String curChat = bot['chat_model']?.toString().trim() ?? '';
+    String curStt = bot['stt_model']?.toString().trim() ?? '';
+    String curVideo = bot['video_model']?.toString().trim() ?? '';
+    String curTts = bot['tts_model']?.toString().trim() ?? '';
+    int curTok = bot['max_tokens'] as int? ?? 10000;
     String curBak = prefs.getString('backup_model_$botId') ?? '';
     String curVision = prefs.getString('vision_model_$botId') ?? '';
     String curImageGen = prefs.getString('image_gen_model_$botId') ?? '';
-    String curStt =
-        prefs.getString('stt_model_$botId') ??
-        ((_bot['stt_model'] as String?)?.trim() ?? '');
-    String curVideo =
-        prefs.getString('video_model_$botId') ??
-        ((_bot['video_model'] as String?)?.trim() ?? '');
-    final jarvisOn = (await DBManager().getKV('jarvis_enabled')) == 'true';
     String curJarvis = prefs.getString('jarvis_model_$botId') ?? '';
-    String curTts =
-        prefs.getString('tts_model_$botId') ??
-        ((_bot['tts_model'] as String?)?.isNotEmpty == true
-            ? _bot['tts_model'] as String
-            : '');
-    int curTok =
-        prefs.getInt('max_token_$botId') ??
-        (_bot['max_tokens'] as int? ?? 10000);
 
     TideDialogs.show(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setSt) {
-          // 选中项实时更新到内存 & 持久化，让界面即时刷新
-          Future<void> pickModel(
-            String key,
-            String val, {
-            bool isTts = false,
-          }) async {
-            setSt(() {});
-            await prefs.setString(key, val);
-            if (!isTts && key == 'chat_model_$botId') {
-              _bot['chat_model'] = val;
-              await DBManager().updateBot(botId, {'chat_model': val});
+          Future<void> pickModel(String key, String val) async {
+            if (await prefs.setString(key, val) && ctx.mounted) setSt(() {});
+          }
+
+          Future<void> saveBotSetting(
+            String field,
+            Object value,
+            VoidCallback updateSelection,
+          ) async {
+            try {
+              await db.updateBot(botId, {field: value});
+              if (mounted) _bot[field] = value;
+              if (ctx.mounted) setSt(updateSelection);
+            } catch (error) {
+              AppLogService.instance.add('AI', '保存角色设置失败 field=$field: $error');
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('保存模型设置失败，请重试')),
+                );
+              }
             }
-            if (isTts && key == 'tts_model_$botId') {
-              _bot['tts_model'] = val;
-              await DBManager().updateBot(botId, {'tts_model': val});
-            }
-            if (key == 'stt_model_$botId') {
-              _bot['stt_model'] = val;
-              await DBManager().updateBot(botId, {'stt_model': val});
-            }
-            if (key == 'video_model_$botId') {
-              _bot['video_model'] = val;
-              await DBManager().updateBot(botId, {'video_model': val});
-            }
-            setSt(() {});
           }
 
           return TideDialogSurface(
@@ -3481,8 +3474,11 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                       children: [
                         _mLabel('聊天模型'),
                         _modelPicker(ctx, providers, curChat, (v) async {
-                          curChat = v;
-                          await pickModel('chat_model_$botId', v);
+                          await saveBotSetting(
+                            'chat_model',
+                            v,
+                            () => curChat = v,
+                          );
                         }),
                         if (jarvisOn) ...[
                           _mLabel('AI军师辅助模型'),
@@ -3514,25 +3510,27 @@ class _ChatRoomPageState extends State<ChatRoomPage>
                         // TTS 模型独立：从 tts_provider_list 读取，额外展示音色字段（可选，不配置则纯文字回复）
                         _mLabel('STT模型'),
                         _modelPicker(ctx, sttProviders, curStt, (v) async {
-                          curStt = v;
-                          await pickModel('stt_model_$botId', v);
+                          await saveBotSetting('stt_model', v, () => curStt = v);
                         }, includePrimaryStt: true),
                         _mLabel('视频解析模型'),
                         _modelPicker(ctx, providers, curVideo, (v) async {
-                          curVideo = v;
-                          await pickModel('video_model_$botId', v);
+                          await saveBotSetting(
+                            'video_model',
+                            v,
+                            () => curVideo = v,
+                          );
                         }, includePrimaryVideo: true),
                         _mLabel('TTS模型'),
                         _modelPicker(ctx, ttsProviders, curTts, (v) async {
-                          curTts = v;
-                          await pickModel('tts_model_$botId', v, isTts: true);
+                          await saveBotSetting('tts_model', v, () => curTts = v);
                         }),
                         _mLabel('最大上下文Token'),
                         _tokenField(ctx, curTok, (v) async {
-                          curTok = v;
-                          await prefs.setInt('max_token_$botId', v);
-                          await DBManager().updateBot(botId, {'max_tokens': v});
-                          setSt(() {});
+                          await saveBotSetting(
+                            'max_tokens',
+                            v,
+                            () => curTok = v,
+                          );
                         }),
                       ],
                     ),
@@ -5219,17 +5217,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final botId = _bot['id']?.toString() ?? '';
     if (botId.isEmpty) return;
 
-    // 这里只校验已选择的配置；当前没有实时 STT/TTS 运行时，
-    // 因而不会开始录音、转写或播放伪造的通话音频。
-    final prefs = await SharedPreferences.getInstance();
-    final hasStt =
-        (prefs.getString('stt_model_$botId') ??
-                (_bot['stt_model']?.toString() ?? ''))
-            .isNotEmpty;
-    final hasTts =
-        (prefs.getString('tts_model_$botId') ??
-                (_bot['tts_model']?.toString() ?? ''))
-            .isNotEmpty;
+    final bot = await DBManager().getBotById(botId);
+    if (bot == null) return;
+    final hasStt = bot['stt_model']?.toString().trim().isNotEmpty ?? false;
+    final hasTts = bot['tts_model']?.toString().trim().isNotEmpty ?? false;
 
     if (!mounted || !await AppPermissions.microphone(context) || !mounted) {
       return;
@@ -5238,7 +5229,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
     final callCard = await Navigator.of(context).push<Map<String, dynamic>>(
       MaterialPageRoute<Map<String, dynamic>>(
         builder: (_) => CallPage(
-          bot: _bot,
+          bot: bot,
           hasStt: hasStt,
           hasTts: hasTts,
           onOpenSettings: () {

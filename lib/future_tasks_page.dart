@@ -177,7 +177,9 @@ class _FutureTasksPageState extends State<FutureTasksPage>
         ? '执行中'
         : failed
             ? '执行失败'
-            : retry > 0
+            : status == 'paused'
+                ? '已暂停'
+                : retry > 0
                 ? '等待重试'
                 : '待执行';
     final disabled = running || _busy.contains(task['id'].toString());

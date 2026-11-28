@@ -761,6 +761,39 @@ class BotVitalSignsService {
     return '【你自己的生活状态】心情：$mood；压力 $stress/10（${stressLevel(vitalDouble(s['stress']))}）；精力 $energy；健康：$health${illness.isNotEmpty ? " $illness" : ""}。$sleepInfo$bodyInfo今日步数$steps步，当前活动：$activity。这些是角色生活状态。$stressScaleGuidance$sleepStatus';
   }
 
+  static Future<Map<String, dynamic>> sendPendingReply(
+    String id,
+    String reason,
+    List<Map<String, dynamic>> pending, {
+    bool nativeOwnsDelivery = false,
+    AICancellationToken? cancellationToken,
+  }) async {
+    final natural = reason == 'natural';
+    final allowSilence = natural &&
+        await DBManager().getKV('adaptive_silence_enabled') != 'false';
+    final images = pending
+        .where((p) => p['type'] == 'image')
+        .map((p) => '${p['file_path'] ?? ''}')
+        .where((p) => p.isNotEmpty)
+        .toList();
+    final text = pending
+        .map((p) =>
+            '${DateTime.fromMillisecondsSinceEpoch(vitalInt(p['time']))} 对方：${p['content'] ?? ''}${p['type'] == 'image' ? ' [图片]' : ''}')
+        .join('\n');
+    return AIManager().sendMessage(
+        botId: id,
+        text: text,
+        imagePaths: images,
+        persistResponse: !nativeOwnsDelivery,
+        nativeOwnsDelivery: nativeOwnsDelivery,
+        cancellationToken: cancellationToken,
+        notifyResponse: !nativeOwnsDelivery,
+        allowTools: natural,
+        extraSystemPrompt: natural
+            ? '你正在睡觉，刚刚短暂醒了，一会儿还要继续睡。前面对方发送的以下消息尚未回复。你自行决定是否现在回复：${allowSilence ? '需要就直接回复，不需要就调用 choose_silence，不输出正文。' : '请结合上下文自然回复。'}'
+            : '你刚刚在睡觉，现在已经起床。前面对方发送的以下消息还没有回复。请自然回复这些消息，结合上下文，不重复已回复内容。本次起床补回必须输出回复。');
+  }
+
   Future<void> _pendingReply(String id, String reason) async {
     if (_replying.contains(id) || (_active[id] ?? 0) > 0) return;
     _replying.add(id);
@@ -768,28 +801,7 @@ class BotVitalSignsService {
       final s = await _serial(id, () => _read(id));
       final pending = vitalList(s['pending']);
       if (pending.isEmpty) return;
-      final natural = reason == 'natural';
-      final allowSilence = natural &&
-          await DBManager().getKV('adaptive_silence_enabled') != 'false';
-      final images = pending
-          .where((p) => p['type'] == 'image')
-          .map((p) => '${p['file_path'] ?? ''}')
-          .where((p) => p.isNotEmpty)
-          .toList();
-      final text = pending
-          .map((p) =>
-              '${DateTime.fromMillisecondsSinceEpoch(vitalInt(p['time']))} 对方：${p['content'] ?? ''}${p['type'] == 'image' ? ' [图片]' : ''}')
-          .join('\n');
-      final result = await AIManager().sendMessage(
-          botId: id,
-          text: text,
-          imagePaths: images,
-          persistResponse: true,
-          notifyResponse: true,
-          allowTools: natural,
-          extraSystemPrompt: natural
-              ? '你正在睡觉，刚刚短暂醒了，一会儿还要继续睡。前面对方发送的以下消息尚未回复。你自行决定是否现在回复：${allowSilence ? '需要就直接回复，不需要就调用 choose_silence，不输出正文。' : '请结合上下文自然回复。'}'
-              : '你刚刚在睡觉，现在已经起床。前面对方发送的以下消息还没有回复。请自然回复这些消息，结合上下文，不重复已回复内容。本次起床补回必须输出回复。');
+      final result = await sendPendingReply(id, reason, pending);
       if (result['success'] != true || result['silent'] == true)
         await _serial(id, () async {
           final state = await _read(id);

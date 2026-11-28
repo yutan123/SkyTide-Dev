@@ -6,7 +6,6 @@ import 'package:flutter/services.dart';
 import 'package:record/record.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'call_message.dart';
 import 'call_speech.dart';
 import 'call_speech_endpoint.dart';
@@ -947,22 +946,15 @@ class _CallPageState extends State<CallPage>
     // 先用入口传入的判定渲染，避免异步读取前闪现"配置语音模型"
     _hasStt = widget.hasStt;
     _hasTts = widget.hasTts;
-    // 再从 SharedPreferences 和 bot 记录中读取实际配置的 STT/TTS
+    // 再从数据库读取最新的 STT/TTS 配置。
     _loadSttTtsConfig();
   }
 
   Future<void> _loadSttTtsConfig() async {
-    final prefs = await SharedPreferences.getInstance();
     final botId = widget.bot['id']?.toString() ?? '';
-
-    _sttProviderId =
-        prefs.getString('stt_model_$botId')?.trim() ??
-        widget.bot['stt_model']?.toString().trim() ??
-        '';
-    _ttsProviderId =
-        prefs.getString('tts_model_$botId')?.trim() ??
-        widget.bot['tts_model']?.toString().trim() ??
-        '';
+    final bot = await DBManager().getBotById(botId);
+    _sttProviderId = bot?['stt_model']?.toString().trim() ?? '';
+    _ttsProviderId = bot?['tts_model']?.toString().trim() ?? '';
 
     if (!mounted) return;
     setState(() {

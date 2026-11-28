@@ -16,6 +16,7 @@ class PluginContract {
     'background.send',
     'background.generate',
     'context.inject',
+    'platform.editor',
     'context.prompts',
 
     'chat.read',

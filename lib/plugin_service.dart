@@ -1,3 +1,4 @@
+import 'platform_editor.dart';
 import 'ai.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:io';
@@ -1209,6 +1210,21 @@ class PluginService {
       return _device(pack, method, args);
     }
     final permissions = pack.manifest['permissions'] as List? ?? [];
+    if (method == 'platform.execute') {
+      if (!permissions.contains('platform.editor')) {
+        throw StateError('未声明 platform.editor 权限');
+      }
+      final payload = args['arguments'];
+      if (payload != null && payload is! Map) {
+        throw const FormatException('无效平台编辑器参数');
+      }
+      return PlatformEditor.instance.call(
+        args['operation']?.toString() ?? '',
+        Map<String, dynamic>.from(payload as Map? ?? const {}),
+        source: '插件 · ${pack.id}',
+        check: () => _assertCurrent(pack),
+      );
+    }
     if (method == 'runtime.sleep') {
       return (_waits[pack.id] ??= PluginWaits()).sleep(args['ms'], () async {
         await _assertCurrent(pack);

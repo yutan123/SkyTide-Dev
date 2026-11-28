@@ -33,6 +33,24 @@ function host() {
   return {context, call, requests, tick, run: code => vm.runInContext(code, context)};
 }
 
+test('platform editor uses the dedicated host RPC and returns a denial unchanged', async () => {
+  const h = host();
+  h.run("tide.registerTool('edit', () => tide.platform.execute('worldBook.update', {robotId: 'b', id: 'w', enabled: false}))");
+  const pending = h.call('tool', 'edit', {});
+  await h.tick();
+  assert.equal(h.context.tide.capabilities.includes('platform.editor'), true);
+  assert.equal(h.requests.length, 1);
+  const {id, method, args} = h.requests[0];
+  assert.equal(method, 'platform.execute');
+  assert.deepEqual(args, {
+    operation: 'worldBook.update',
+    arguments: {robotId: 'b', id: 'w', enabled: false},
+  });
+  const denied = {ok: false, error: 'cancelled'};
+  h.context.__tideResolve(id, denied, null);
+  assert.deepEqual(await pending, denied);
+});
+
 test('chat read APIs bind to invocation and preserve host validation arguments', async () => {
   const h = host();
   h.run("tide.registerTool('read', async (args, context) => await context.chat.getRecentMessages({limit: args.limit}))");

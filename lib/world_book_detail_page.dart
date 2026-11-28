@@ -91,7 +91,7 @@ class _WorldBookDetailPageState extends State<WorldBookDetailPage> {
   Future<void> _load() async {
     final results = await Future.wait<dynamic>([
       _db.getBotById(widget.botId),
-      _db.queryMemories(widget.botId),
+      _db.queryMemories(widget.botId, includeDisabled: true),
       _loadCategories(),
     ]);
     if (!mounted) return;
@@ -1507,6 +1507,7 @@ class _WorldBookDetailPageState extends State<WorldBookDetailPage> {
     final id = row['id'].toString();
     final expanded = _expanded.contains(id);
     final category = _category(row);
+    final enabled = row['enabled'] != 0;
     final content = _text(row, 'content');
     final color = _categoryColor(category);
     final title = _text(row, 'title').isEmpty ? category : _text(row, 'title');
@@ -1568,7 +1569,9 @@ class _WorldBookDetailPageState extends State<WorldBookDetailPage> {
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
-                            '$category · 优先级${memoryImportance(row)}',
+                            enabled
+                                ? '$category · 优先级${memoryImportance(row)}'
+                                : '$category · 已停用',
                             style: TextStyle(
                               color: color,
                               fontFamily: 'TideFont',
@@ -1612,6 +1615,21 @@ class _WorldBookDetailPageState extends State<WorldBookDetailPage> {
                       const SizedBox(height: 11),
                       Divider(height: 1, color: theme.divider),
                       const SizedBox(height: 8),
+                      SwitchListTile.adaptive(
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('参与世界书注入'),
+                        value: enabled,
+                        onChanged: (value) async {
+                          final database = await _db.database;
+                          await database.update(
+                            'memories',
+                            {'enabled': value ? 1 : 0},
+                            where: 'id = ? AND bot_id = ?',
+                            whereArgs: [id, widget.botId],
+                          );
+                          if (mounted) await _load();
+                        },
+                      ),
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [

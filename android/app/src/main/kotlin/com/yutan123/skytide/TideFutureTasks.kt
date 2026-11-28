@@ -5,7 +5,7 @@ import kotlinx.coroutines.CancellationException
 import org.json.JSONObject
 import java.util.Calendar
 
-/** Executes the existing schedule_tasks queue without a Flutter engine. */
+/** Executes the existing schedule_tasks queue with the shared Dart chat pipeline. */
 object TideFutureTasks {
     private const val LEASE_MS = 6 * 60_000L
 
@@ -39,36 +39,21 @@ object TideFutureTasks {
         val started = android.os.SystemClock.elapsedRealtime()
         try {
             val botId = task.getString("bot_id")
-            val bot = TideConfigReader.getBotConfig(context, botId) ?: error("Bot not found")
-            check(!bot.isDisabled) { "Bot is disabled" }
-            val model = bot.chatModel ?: error("No chat model configured")
+            check(TideConfigReader.isBotEnabled(context, botId)) { "Bot is disabled or not found" }
             val prompt = task.optString("prompt").ifBlank { task.optString("note") }
             check(prompt.isNotBlank()) { "Empty task prompt" }
-            val history = TideStore.open(context).use { db ->
-                TideStore.rows(db, "SELECT role,content FROM chat_history WHERE bot_id=? AND type='text' AND role IN ('user','assistant') ORDER BY timestamp DESC LIMIT 20", botId)
-                    .reversed().map { TideAiClient.Message(it.getString("role"), it.optString("content")) }
-            }
-            val response = TideAiClient.sendRequest(TideAiClient.AiRequest(
-                model.baseUrl, model.apiKey, model.model,
-                listOf(TideAiClient.Message("system", TidePromptContext.system(context, bot))) + history +
-                    TideAiClient.Message("user", "这是一个定时任务，请完成：$prompt"), bot.maxTokens,
-                presetName = model.presetName, providerName = model.name, isCustom = model.isCustom
-            )) { url, body, attempt ->
-                if (TideBackgroundLog.enabled(context)) {
-                    TideBackgroundLog.add(context, "未来任务完整请求（已脱敏）\n" + JSONObject()
-                        .put("task_id", taskId).put("execution_id", executionId)
-                        .put("bot_id", botId).put("title", task.optString("title"))
-                        .put("attempt", attempt).put("method", "POST").put("url", url)
-                        .put("headers", JSONObject().put("Content-Type", "application/json")
-                            .put("Authorization", "[REDACTED]"))
-                        .put("body", JSONObject(body)).toString(2), "FUTURE_TASK_REQUEST")
-                }
-            }.getOrThrow()
+            val response = TideProactiveReplyEngine.requireReply(context,
+                TideProactiveReplyEngine.generateFuture(context, botId, prompt))
             TideStore.open(context).use { db ->
                 TideStore.transaction(db) {
                     val lease = TideStore.rows(db, "SELECT locked_at,status FROM schedule_tasks WHERE id=?", taskId).firstOrNull()
                     check(lease?.optString("status") == "running" && lease.optLong("locked_at") == now) { "Future task lease expired" }
-                    TideTaskExecutor.publishMessage(db, botId, taskId, response.content, executionId)
+                    if (response.optBoolean("silent")) {
+                        db.execSQL("UPDATE background_task_executions SET status='success',finished_at=? WHERE execution_id=? AND status='running'",
+                            arrayOf(System.currentTimeMillis(), executionId))
+                    } else {
+                        TideTaskExecutor.publishMessage(db, botId, taskId, response.optString("reply"), executionId, response)
+                    }
                     if (task.optString("frequency") == "daily") {
                         val next = Calendar.getInstance().apply { timeInMillis = task.getLong("run_at") }
                         do { next.add(Calendar.DAY_OF_MONTH, 1) } while (next.timeInMillis <= System.currentTimeMillis())
@@ -81,8 +66,8 @@ object TideFutureTasks {
                 }
             }
             runCatching { TideBackgroundLog.add(context,
-                "未来任务完成：task=$taskId，execution=$executionId，耗时=${android.os.SystemClock.elapsedRealtime() - started}ms，finish=${response.finishReason}" +
-                    if (TideBackgroundLog.enabled(context)) "\n响应：${response.content}" else "",
+                "未来任务完成：task=$taskId，execution=$executionId，耗时=${android.os.SystemClock.elapsedRealtime() - started}ms，silent=${response.optBoolean("silent")}" +
+                    if (TideBackgroundLog.enabled(context)) "\n响应：${response.optString("reply")}" else "",
                 "FUTURE_TASK_RESPONSE") }
         } catch (e: Exception) {
             runCatching { TideBackgroundLog.add(context,

@@ -316,12 +316,10 @@ class McpClient {
     final currentSession = sessionId;
     if (currentSession == null) return;
     try {
-      await _httpClient
-          .delete(
-            Uri.parse(url),
-            headers: _headers,
-          )
-          .timeout(timeout);
+      await (() async {
+        final response = await _httpClient.send(_newRequest('DELETE'));
+        await response.stream.listen((_) {}).cancel();
+      })().timeout(timeout);
     } finally {
       sessionId = null;
       negotiatedProtocolVersion = null;
@@ -357,18 +355,23 @@ class McpClient {
   }
 
   Future<void> _notify(String method, Map<String, dynamic> params) async {
-    final response = await _httpClient
-        .post(
-          Uri.parse(url),
-          headers: _headers,
-          body: jsonEncode(
-              {'jsonrpc': '2.0', 'method': method, 'params': params}),
-        )
-        .timeout(timeout);
-    if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw StateError('MCP HTTP ${response.statusCode} ($method)');
-    }
+    await (() async {
+      final request = _newRequest('POST')
+        ..body = jsonEncode(
+          {'jsonrpc': '2.0', 'method': method, 'params': params},
+        );
+      final response = await _httpClient.send(request);
+      await response.stream.listen((_) {}).cancel();
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw StateError('MCP HTTP ${response.statusCode} ($method)');
+      }
+    })().timeout(timeout);
   }
+
+  http.Request _newRequest(String method) =>
+      http.Request(method, Uri.parse(url))
+        ..followRedirects = false
+        ..headers.addAll(_headers);
 
   Future<Map<String, dynamic>> _request(
     String method,
@@ -380,8 +383,7 @@ class McpClient {
 
   Future<Map<String, dynamic>> _sendRequest(
       String method, Map<String, dynamic> params, int id) async {
-    final request = http.Request('POST', Uri.parse(url))
-      ..headers.addAll(_headers)
+    final request = _newRequest('POST')
       ..body = jsonEncode({
         'jsonrpc': '2.0',
         'id': id,

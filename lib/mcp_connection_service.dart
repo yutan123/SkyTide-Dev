@@ -12,6 +12,40 @@ class McpConnectionService {
   static final instance = McpConnectionService._();
   bool _running = false;
 
+  /// Discover without executing any tools or enabling new tools.
+  Future<bool> discover(
+    Map<String, dynamic> server,
+    Future<void> Function() guard,
+  ) async {
+    final id = server['id'] as String;
+    final url = server['url'] as String;
+    final stored = await const FlutterSecureStorage().read(key: 'mcp_headers_$id');
+    final client = McpClient(
+      url: url,
+      headers: stored == null
+          ? const {}
+          : Map<String, String>.from(jsonDecode(stored) as Map),
+    );
+    try {
+      await guard();
+      await client.initialize();
+      final tools = await client.listTools();
+      await guard();
+      await DBManager().saveMcpTools(id, tools, requireApproval: true, expectedUrl: url);
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      try {
+        await client.close();
+      } catch (_) {
+        // Session cleanup is best effort.
+      } finally {
+        client.dispose();
+      }
+    }
+  }
+
   Future<void> connectAuto() async {
     if (_running) return;
     _running = true;

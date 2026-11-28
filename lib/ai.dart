@@ -1,5 +1,8 @@
 import 'builtin_generation_settings.dart';
 import 'chat_api_endpoint.dart';
+import 'chat_model_selection.dart';
+import 'platform_editor.dart';
+import 'platform_editor_form.dart';
 import 'plugin_service.dart';
 import 'proactive_request_gate.dart';
 import 'native_background_coordinator.dart';
@@ -44,7 +47,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'db.dart';
 import 'holiday_calendar_service.dart';
 import 'message_delivery_service.dart';
-import 'future_task_scheduler.dart';
 import 'life_schedule_service.dart';
 import 'media_preprocessor.dart';
 import 'video_processing_service.dart';
@@ -260,11 +262,17 @@ class AIManager {
     AICancellationToken? cancellationToken,
     bool deferPluginDelivery = false,
     bool showInnerThoughtFirst = false,
+    bool nativeOwnsDelivery = false,
     void Function(Map<String, dynamic> message)? onToolProgress,
     void Function(String delta)? onDelta,
     void Function()? onPreviewReset,
   }) async {
-    final activity = task == AIRequestTask.chat && !diaryTask && !quoteTask
+    assert(!nativeOwnsDelivery || !persistResponse);
+    final activity =
+        !nativeOwnsDelivery &&
+            task == AIRequestTask.chat &&
+            !diaryTask &&
+            !quoteTask
         ? await ProactiveRequestGate.begin(await DBManager().database, botId)
         : null;
     if (activity != null) {
@@ -326,31 +334,14 @@ class AIManager {
               forceSingleReply = true;
             }
             final prefs = await SharedPreferences.getInstance();
-            const primaryLocal = '';
-            const backupLocal = '';
-            final backupRemote = (prefs.getString('backup_model_$botId') ?? '')
-                .trim();
-            final matchingBots = (await DBManager().getAllBots())
-                .where((bot) => bot['id']?.toString() == botId)
-                .toList();
-            final primaryRemote = matchingBots.isEmpty
-                ? ''
-                : (matchingBots.first['chat_model']?.toString().trim() ?? '');
-            // 首次严格使用主模型；失败后优先使用备用模型，再给备用模型一次重试。
-            // 过去主模型是远程时 provider 被错误置空，导致永远落到列表第一个服务商。
-            final primary = {'local': primaryLocal, 'provider': primaryRemote};
-            final backup = {'local': backupLocal, 'provider': backupRemote};
-            bool configured(Map<String, String> candidate) =>
-                candidate['local']!.isNotEmpty ||
-                candidate['provider']!.isNotEmpty;
-            // Never attempt an empty primary. A configured backup must be usable even
-            // when the bot has no primary model selected.
-            final attempts = <Map<String, String>>[
-              if (configured(primary)) primary,
-              if (configured(backup) &&
-                  backup['provider'] != primary['provider'])
-                backup,
-            ];
+            // Other Flutter engines share settings, not the preferences cache.
+            await prefs.reload();
+            final bot = await DBManager().getBotById(botId);
+            if (bot == null) return {'error': '系统异常：生命体档案丢失'};
+            final attempts = configuredChatProviderIds(
+              bot,
+              prefs.getString('backup_model_$botId'),
+            );
             if (attempts.isEmpty) {
               return {'error': '未配置聊天模型，请先在角色设置中选择聊天或备用模型'};
             }
@@ -425,8 +416,7 @@ class AIManager {
                             onToolProgress(row);
                           },
                     onToolExecutionStarted: () => toolChainStarted = true,
-                    forcedLocalId: candidate['local']!,
-                    forcedProviderId: candidate['provider']!,
+                    providerId: candidate,
                   );
                   if (result['success'] == true) {
                     if (vitalTracked)
@@ -441,7 +431,9 @@ class AIManager {
                   final code =
                       int.tryParse(result['error_code']?.toString() ?? '') ?? 0;
                   final retryable =
-                      result['error_code']?.toString() == 'network' ||
+                      result['error_code'] == 'provider_missing' ||
+                      result['error_code'] == 'network' ||
+                      code == 402 ||
                       code == 408 ||
                       code == 429 ||
                       code >= 500;
@@ -631,6 +623,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
   Future<String> _jarvisAdvice({
     required Map bot,
     required String botId,
+    required String replyProviderId,
     required String text,
     required List<Map<String, dynamic>> history,
     required String profileContext,
@@ -644,10 +637,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       cancellationToken?.throwIfCancelled();
       final prefs = await SharedPreferences.getInstance();
       final selected = (prefs.getString('jarvis_model_$botId') ?? '').trim();
-      final providerId = selected.isNotEmpty
-          ? selected
-          : (bot['chat_model']?.toString().trim() ?? '');
-      if (providerId.isEmpty) return '';
+      // An explicit advisor stays independent. Otherwise follow this reply
+      // attempt, including when it has already switched to the backup.
+      final providerId = selected.isNotEmpty ? selected : replyProviderId;
       final provider = await DBManager().getChatProviderById(providerId);
       if (provider == null) return '';
       var modelName = (provider['model'] as String? ?? '').trim();
@@ -962,8 +954,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     void Function()? onPreviewReset,
     required void Function() onToolExecutionStarted,
     void Function(Map<String, dynamic> message)? onToolProgress,
-    String forcedLocalId = '',
-    String forcedProviderId = '',
+    required String providerId,
   }) async {
     http.Client? responseClient;
     void Function()? cancelResponse;
@@ -982,10 +973,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         : 0;
 
     cancellationToken?.throwIfCancelled();
-    final bots = await db.getAllBots().timeout(const Duration(seconds: 8));
-
-    final bot = bots.firstWhere((b) => b['id'] == botId, orElse: () => {});
-    if (bot.isEmpty) return {'error': '系统异常：生命体档案丢失'};
+    final bot = await db.getBotById(botId).timeout(const Duration(seconds: 8));
+    if (bot == null) return {'error': '系统异常：生命体档案丢失'};
     if (isBotDisabled(bot['is_disabled'])) {
       return {'success': true, 'silent': true, 'reply': ''};
     }
@@ -996,24 +985,16 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         voiceEnabled &&
         ttsModel.isNotEmpty &&
         Random.secure().nextInt(100) < voiceChance;
-    // 提取该 bot 配置的 provider id（存在 bots.chat_model 字段，由聊天室设置弹窗写入）
-    // A newly added provider is usable immediately. Only fill an empty model;
-    // never overwrite a deliberate per-bot choice.
-    var providerId = forcedProviderId.isNotEmpty
-        ? forcedProviderId
-        : (bot['chat_model']?.toString().trim() ?? '');
-    print('[ai] resolve bot=$botId configured_provider=$providerId');
     AppLogService.instance.add('AI', '解析机器人 $botId，provider=$providerId');
-    if (providerId.isEmpty) {
-      final providers = await db.queryChatProviders();
-      if (providers.isEmpty) return {'error': '未配置引擎中枢，请先在 API 设置中添加模型'};
-      providerId = providers.first['id']?.toString() ?? '';
-      if (providerId.isEmpty) return {'error': '模型配置无效，请检查 API 设置'};
-      await db.updateBot(botId, {'chat_model': providerId});
-    }
-    // 优先用统一的聊天链路读取，兼容 API 设置页的 provider_list
     final provider = await db.getChatProviderById(providerId);
-    if (provider == null) return {'error': '映射的模型已被删除，请重新配置'};
+    if (provider == null) {
+      return {
+        'error': '映射的模型已被删除，请重新配置',
+        'error_code': 'provider_missing',
+      };
+    }
+    final streamResponse =
+        onDelta != null || task == AIRequestTask.proactiveChat;
     final cachePolicy = ChatProviderCache.resolve(provider);
     final useGptStableHistory =
         task == AIRequestTask.chat && cachePolicy == ChatProviderCache.gpt;
@@ -1271,6 +1252,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               db,
               botId: botId,
               includeEmotion: true,
+              platformEditing: task == AIRequestTask.chat && !diaryTask &&
+                  !quoteTask && !isVoiceCall && activeGame == null &&
+                  onDelta != null && platformEditorInForeground,
               allowSticker: stickerEmotions.isNotEmpty,
               stickerTypes: stickerEmotions.toSet(),
             )
@@ -1339,6 +1323,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           ],
           skillContext,
           toolContext,
+          if (features.has('skytide_edit'))
+            '【SkyTide 平台编辑器】${PlatformEditor.instruction}',
           if (!keepProfileAfterHistory) profileContext,
         ],
       ].where((part) => part.trim().isNotEmpty).join('\n\n');
@@ -1631,13 +1617,14 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         currentFileMessage = messages.last;
       }
       if (!isVoiceCall &&
-          useJarvis &&
+          (useJarvis || task == AIRequestTask.proactiveChat) &&
           await db.getKV('jarvis_enabled') == 'true' &&
           includeChatHistory &&
           activeGame == null) {
         final advice = await _jarvisAdvice(
           bot: bot,
           botId: botId,
+          replyProviderId: providerId,
           text: task == AIRequestTask.proactiveChat
               ? messages.last['content'].toString()
               : text,
@@ -1708,7 +1695,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       );
       AppLogService.instance.add(
         'AI',
-        '请求 $modelName（tools=${allowTools ? 'on' : 'off'}，stream=${onDelta != null ? 'on' : 'off'}）',
+        '请求 $modelName（tools=${allowTools ? 'on' : 'off'}，stream=${streamResponse ? 'on' : 'off'}）',
       );
       final nativeApi = NativeChatApi.resolve(provider, baseUrl);
       final fileProtocol = ChatFileProtocol.resolve(
@@ -1816,7 +1803,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             ? Uri.parse(chatApiEndpoint(baseUrl))
             : ChatGptResponses.endpoint(baseUrl);
         final chatPayload = prepareChatCompletionPayload({
-          ...cachePolicy.requestOptions(cacheScope, stream: onDelta != null),
+          ...cachePolicy.requestOptions(cacheScope, stream: streamResponse),
           'model': modelName,
           'messages': prepareOpenAIChatCompletionMessages(messages),
           if (cachePolicy == ChatProviderCache.gpt)
@@ -1833,7 +1820,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                     'function': {'name': 'request_voice_reply'},
                   }
                 : 'auto',
-          if (onDelta != null) 'stream': true,
+          if (streamResponse) 'stream': true,
         });
         final payload = responses?.payload(chatPayload) ?? chatPayload;
         _logRequestPrefix(
@@ -1944,7 +1931,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       token?.addOnCancel(cancelRequest);
       AppLogService.instance.add(
         'AI_TRACE',
-        'HTTP 请求开始 model=$modelName base_url=$baseUrl stream=${onDelta != null}',
+        'HTTP 请求开始 task=${task.name} provider=$providerId model=$modelName stream=$streamResponse',
       );
       final httpStarted = DateTime.now();
       final streamedResponse = await fileTransport.sendWithTextFallback(
@@ -2002,7 +1989,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final responseContentType =
           streamedResponse.headers['content-type']?.toLowerCase() ?? '';
       if (statusCode == 200 &&
-          onDelta != null &&
+          streamResponse &&
           !responseContentType.contains('json')) {
         final lines = utf8.decoder
             .bind(streamedResponse.stream.cast<List<int>>())
@@ -2303,7 +2290,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               modelName: modelName,
               apiKey: provider['api_key']?.toString() ?? '',
               maxTokens: maxContext,
-              streamResponse: onDelta != null,
+              streamResponse: streamResponse,
               publicOnly: publicToolReply,
               onDelta: previewDelta,
               onPreviewReset: onPreviewReset,
@@ -2347,7 +2334,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       );
       if (toolSilenced) replyText = '';
       print('[ai] response status=$statusCode');
-      AppLogService.instance.add('AI', '服务商响应 HTTP $statusCode');
+      AppLogService.instance.add(
+        'AI',
+        '服务商响应 task=${task.name} provider=$providerId model=$modelName HTTP $statusCode',
+      );
       AppLogService.instance.add(
         'RESPONSE',
         '模型提供商响应（HTTP $statusCode）\n${errorBody.isEmpty ? replyText : errorBody}',
@@ -2670,7 +2660,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           '[ai] response error=${detail.length > 300 ? detail.substring(0, 300) : detail}',
         );
         return {
-          'error': _friendlyHttpError(statusCode, detail),
+          'error': '${_friendlyHttpError(statusCode, detail)}（模型：$modelName）',
           'error_log': 'HTTP $statusCode\n$detail',
           'error_code': statusCode,
         };
@@ -2850,25 +2840,22 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required String botId,
     String userText = '',
   }) async {
+    var resolvedId = providerId.trim();
+    if (resolvedId == primaryVideoModel) {
+      final bot = await DBManager().getBotById(botId);
+      resolvedId = resolveVideoProviderId(
+        resolvedId,
+        bot?['chat_model']?.toString() ?? '',
+      );
+    }
+    AppLogService.instance.add('VIDEO', '解析视频模型配置 provider=$resolvedId');
+    final provider = await DBManager().getChatProviderById(resolvedId);
+    if (provider == null) throw StateError('视频解析模型不存在或已被删除，请重新设置');
     return await MediaStorageService.instance.withRequestVideo(videoPath, (
       requestPath,
     ) async {
       videoPath = requestPath;
 
-      var resolvedId = providerId.trim();
-      if (resolvedId == primaryVideoModel) {
-        final prefs = await SharedPreferences.getInstance();
-        final bot = await DBManager().getBotById(botId);
-        resolvedId = resolveVideoProviderId(
-          resolvedId,
-          prefs.getString('chat_model_$botId') ??
-              bot?['chat_model']?.toString() ??
-              '',
-        );
-      }
-      AppLogService.instance.add('VIDEO', '解析视频模型配置 provider=$resolvedId');
-      final provider = await DBManager().getChatProviderById(resolvedId);
-      if (provider == null) throw StateError('视频解析模型不存在或已被删除，请重新设置');
       final baseUrl = (provider['base_url']?.toString() ?? '')
           .trim()
           .replaceFirst(RegExp(r'/+$'), '');
@@ -3086,13 +3073,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     AICancellationToken? cancellationToken,
   }) async {
     final db = DBManager();
-    final prefs = await SharedPreferences.getInstance();
     final bot = await db.getBotById(botId);
-    final providerId =
-        (prefs.getString('stt_model_$botId') ??
-                bot?['stt_model']?.toString() ??
-                '')
-            .trim();
+    final providerId = bot?['stt_model']?.toString().trim() ?? '';
 
     // 普通聊天语音、通话及视频音轨均先独立转写，再由调用方保存或组装上下文。
     if (providerId == '__use_primary_stt__') {
@@ -3878,10 +3860,10 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     if (lastDate == todayStr && lastQuote != null)
       return singleDailyQuote(lastQuote);
 
-    final bots = await db.getAllBots();
-    final bot = bots.firstWhere((b) => b['id'] == botId, orElse: () => {});
-    if (bot.isEmpty || bot['chat_model'] == null) return "今天也要开心度过哦。";
-    if (isBotDisabled(bot['is_disabled'])) return "今天也要开心度过哦。";
+    final bot = await db.getBotById(botId);
+    if (bot == null || isBotDisabled(bot['is_disabled'])) {
+      return '今天也要开心度过哦。';
+    }
 
     final recentQuotes = (await Future.wait(
       List.generate(
@@ -4586,7 +4568,25 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       final stopwatch = Stopwatch()..start();
       Map<String, dynamic> result;
       try {
-        result = name == 'read_chat_file'
+        if (PlatformEditor.isRobotTool(name)) {
+          // Native approvals and form responses never pass through plugin hooks.
+          final function = call['function'] as Map;
+          final args = _decodeToolArguments(function['arguments']);
+          final editing = name == 'skytide_edit';
+          final raw = editing ? args['arguments'] : args;
+          if (raw != null && raw is! Map) {
+            throw const FormatException('无效编辑器参数');
+          }
+          final actor = await db.getBotById(botId);
+          result = {'result': await PlatformEditor.instance.call(
+            editing ? args['operation']?.toString() ?? '' : 'user.request',
+            Map<String, dynamic>.from(raw as Map? ?? const {}),
+            source: '机器人 · ${actor?['name'] ?? ''}',
+            robotId: botId,
+            check: cancellationToken?.checkRequestAllowed,
+          )};
+        } else {
+          result = name == 'read_chat_file'
             ? await readFile(call)
             : await _executeNativeToolCall(
                 db: db,
@@ -4598,6 +4598,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                 inspectableVideos: inspectableVideos,
                 currentImages: currentImages,
               );
+        }
       } on AICancelledException {
         rethrow;
       } catch (error, stack) {
@@ -4852,6 +4853,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     DBManager db, {
     required String botId,
     bool includeEmotion = false,
+    bool platformEditing = false,
     bool allowSticker = false,
     bool allowSilence = true,
     Set<String> stickerTypes = const {},
@@ -4863,6 +4865,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     if (allowSticker && stickerTypes.isNotEmpty) {
       tools.add(sendStickerToolSchema(stickerTypes.toList()..sort()));
     }
+    if (platformEditing) tools.addAll(PlatformEditor.tools);
     tools.add(viewVideoToolSchema());
     tools.add(readChatFileToolSchema());
     tools.add(inspectImageToolSchema(name: 'inspect_image'));
@@ -4896,32 +4899,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       // Keep this definition present even for text turns; execution validates it.
       tools.add(userImageEditToolSchema());
     }
-    tools.add({
-      'type': 'function',
-      'function': {
-        'name': 'create_future_task',
-        'description':
-            '仅在用户明确要求提醒、定时、稍后执行或安排未来事项时创建未来任务。创建前必须确认当前未来任务中没有同一事项；相同标题、时间或目的的任务不得重复创建。run_at 必须是当地未来时间，格式 YYYY-MM-DD HH:mm。',
-        'parameters': {
-          'type': 'object',
-          'properties': {
-            'title': {'type': 'string', 'description': '简短任务标题'},
-            'prompt': {'type': 'string', 'description': '到时要执行或提醒的完整内容'},
-            'run_at': {
-              'type': 'string',
-              'description': '当地未来时间，YYYY-MM-DD HH:mm',
-            },
-            'frequency': {
-              'type': 'string',
-              'enum': ['once', 'daily'],
-              'description': '一次或每天',
-            },
-          },
-          'required': ['title', 'run_at'],
-          'additionalProperties': false,
-        },
-      },
-    });
     if (await LifeScheduleService.instance.enabled()) {
       tools.add({
         'type': 'function',
@@ -4972,7 +4949,11 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         tools.add(_requestVoiceReplyToolSchema());
       }
     }
-    tools.addAll(await _buildExternalTools(db, botId));
+    tools.addAll((await _buildExternalTools(db, botId)).where(
+      (tool) => !PlatformEditor.isRobotTool(
+        (tool['function'] as Map?)?['name']?.toString() ?? '',
+      ),
+    ));
 
     // 发起语音通话工具
     tools.add({
@@ -5791,11 +5772,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             throw StateError('完整视频文件不可用，请重新发送视频');
           }
           final bot = await db.getBotById(botId);
-          final modelId =
-              (prefs.getString('video_model_$botId') ??
-                      bot?['video_model']?.toString() ??
-                      '')
-                  .trim();
+          final modelId = bot?['video_model']?.toString().trim() ?? '';
           if (modelId.isNotEmpty) {
             final analysis = await describeVideoForBot(
               videoPath: path,
@@ -6396,68 +6373,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           'result': {'ok': false, 'error': '发起通话失败：$error'},
         };
       }
-    }
-    if (name == 'create_future_task') {
-      final title = args['title']?.toString().trim() ?? '';
-      final prompt = args['prompt']?.toString().trim() ?? title;
-      final rawRunAt = args['run_at']?.toString().trim() ?? '';
-      final parsed = DateTime.tryParse(rawRunAt.replaceFirst(' ', 'T'));
-      if (title.isEmpty || parsed == null) {
-        return {
-          'result': {
-            'ok': false,
-            'error': '缺少 title 或 run_at 格式不正确，应为 YYYY-MM-DD HH:mm',
-          },
-        };
-      }
-      final runAt = parsed.millisecondsSinceEpoch;
-      if (runAt <= DateTime.now().millisecondsSinceEpoch) {
-        return {
-          'result': {'ok': false, 'error': '未来任务必须设置在当前时间之后'},
-        };
-      }
-      final frequency = args['frequency']?.toString() == 'daily'
-          ? 'daily'
-          : 'once';
-      final existingTasks = await db.querySchedules(botId);
-      final normalizedTitle = title
-          .replaceAll(RegExp(r'\s+'), '')
-          .toLowerCase();
-      final duplicate = existingTasks.any((task) {
-        final oldTitle = (task['title']?.toString() ?? '')
-            .replaceAll(RegExp(r'\s+'), '')
-            .toLowerCase();
-        final oldRunAt = (task['run_at'] as num?)?.toInt() ?? 0;
-        return oldTitle == normalizedTitle &&
-            oldRunAt == runAt &&
-            task['status']?.toString() != 'done';
-      });
-      if (duplicate)
-        return {
-          'result': {
-            'ok': true,
-            'duplicate': true,
-            'message': '相同未来任务已存在，未重复创建。',
-          },
-        };
-      final id = 'future_${botId}_${runAt}_${title.hashCode.abs()}';
-      final task = {
-        'id': id,
-        'bot_id': botId,
-        'title': title,
-        'note': prompt,
-        'time': runAt,
-        'is_done': 0,
-        'frequency': frequency,
-        'prompt': prompt,
-        'run_at': runAt,
-        'status': 'pending',
-      };
-      await db.insertFutureTask(task);
-      await FutureTaskScheduler.schedule(task);
-      return {
-        'result': {'ok': true, 'id': id, 'message': '未来任务已创建：$title'},
-      };
     }
     if (name == 'update_life_state') {
       final updated = await LifeScheduleService.instance.updateFromTool(

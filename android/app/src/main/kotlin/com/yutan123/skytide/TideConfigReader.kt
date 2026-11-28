@@ -122,6 +122,14 @@ object TideConfigReader {
         }
     }
 
+    /** Eligibility checks must not read credentials or select a model. */
+    fun isBotEnabled(context: Context, botId: String): Boolean =
+        openDatabase(context)?.use { db ->
+            db.rawQuery("SELECT COALESCE(is_disabled, 0) FROM bots WHERE id = ?", arrayOf(botId)).use {
+                it.moveToFirst() && it.getInt(0) == 0
+            }
+        } ?: false
+
     /**
      * 获取所有未禁用的机器人 ID
      */
