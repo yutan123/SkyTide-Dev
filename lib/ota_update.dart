@@ -12,6 +12,7 @@ import 'db.dart';
 import 'global_notice.dart';
 import 'ota_daily_check.dart';
 import 'ota_release.dart';
+import 'plugin_operation.dart';
 import 'theme.dart';
 import 'transfer_progress.dart';
 import 'ui_components.dart';
@@ -46,21 +47,60 @@ class OtaUpdate {
     }
   }
 
+  static bool _checkingNow = false;
+
   static Future<void> checkNow(BuildContext context) async {
+    if (_checkingNow) return;
+    _checkingNow = true;
+    final operation = PluginOperation();
     try {
-      final result = await _probe();
+      final result = await TransferProgress.run(
+        context,
+        '正在检测新版本…',
+        () => _cancellableProbe(operation),
+        operation: operation,
+        compact: true,
+      );
+      operation.check();
       if (!context.mounted) return;
       await _present(result, showWhenCurrent: true, context: context);
+    } on PluginOperationCancelled {
+      // A cancelled manual check must not show any result or error.
     } catch (error) {
       debugPrint('[ota] check failed: $error');
       if (context.mounted) {
         GlobalNotice.show(_errorMessage(error), color: const Color(0xFFE74C3C));
       }
+    } finally {
+      operation.dispose();
+      _checkingNow = false;
     }
   }
 
-  static Future<(OtaRelease?, PackageInfo)> _probe() async =>
-      (await _latestRelease(), await PackageInfo.fromPlatform());
+  static Future<(OtaRelease?, PackageInfo)> _cancellableProbe(
+    PluginOperation operation,
+  ) async {
+    operation.check();
+    final cancelled = Completer<(OtaRelease?, PackageInfo)>();
+    final unlisten = operation.listen(
+      () => cancelled.completeError(const PluginOperationCancelled()),
+    );
+    try {
+      return await Future.any([_probe(operation), cancelled.future]);
+    } finally {
+      unlisten();
+    }
+  }
+
+  static Future<(OtaRelease?, PackageInfo)> _probe([
+    PluginOperation? operation,
+  ]) async {
+    final release = await _latestRelease(operation);
+    operation?.check();
+    final installed = await PackageInfo.fromPlatform();
+    operation?.check();
+    return (release, installed);
+  }
 
   static Future<void> _present(
     (OtaRelease?, PackageInfo) result, {
@@ -95,8 +135,10 @@ class OtaUpdate {
     return '检查更新失败，请稍后重试';
   }
 
-  static Future<OtaRelease?> _latestRelease() async {
+  static Future<OtaRelease?> _latestRelease(PluginOperation? operation) async {
+    operation?.check();
     final client = http.Client();
+    final unlisten = operation?.listen(client.close);
     try {
       final response = await client
           .get(
@@ -111,17 +153,23 @@ class OtaUpdate {
         jsonDecode(utf8.decode(response.bodyBytes)),
       );
     } catch (error) {
+      operation?.check();
       debugPrint('[ota] primary source failed: $error');
     } finally {
+      unlisten?.call();
       client.close();
     }
-    return _latestGitHubRelease();
+    return _latestGitHubRelease(operation);
   }
 
-  static Future<OtaRelease> _latestGitHubRelease() async {
+  static Future<OtaRelease> _latestGitHubRelease(
+    PluginOperation? operation,
+  ) async {
     final errors = <String>[];
     for (final endpoint in <String>[_releaseApi, ..._releaseApiFallbacks]) {
+      operation?.check();
       final client = http.Client();
+      final unlisten = operation?.listen(client.close);
       try {
         final response = await client
             .get(
@@ -159,9 +207,11 @@ class OtaUpdate {
       } catch (error) {
         errors.add('$endpoint $error');
       } finally {
+        unlisten?.call();
         client.close();
       }
     }
+    operation?.check();
     throw HttpException('所有更新源均不可用：${errors.join('；')}');
   }
 

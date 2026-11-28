@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'memory_retrieval_policy.dart';
+
 const memoryCategoryPolicy =
     '【记忆分类：必须遵守】\n'
     '【检索关键词禁令】keys 绝对不能填写你自己的名字或对方的名字，包括昵称、别名和含有双方姓名的短语。只选择事件、主题、物品、地点或具体偏好等有区分度的词；没有合适关键词时返回空数组。此限制仅针对检索关键词，正文仍须明确事实主体。\n'
@@ -45,4 +47,27 @@ String recentMemoryReference(
       )
       .toList();
   return '【最近世界书条目：可用于回忆与写入前去重，不是本轮新事实】\n${jsonEncode(recent)}';
+}
+
+/// Select the latest five rules before removing entries already injected.
+List<Map<String, dynamic>> additionalProactiveRules(
+  Iterable<Map<String, dynamic>> memories, {
+  required Iterable<Map<String, dynamic>> recent,
+}) {
+  final seen = recent.map(memoryIdentity).toSet();
+  final facts = recent.map(memoryFact).toSet();
+  return memories
+      .where((row) => row['category'] == '规则')
+      .take(5)
+      .where(
+        (row) => seen.add(memoryIdentity(row)) && facts.add(memoryFact(row)),
+      )
+      .toList();
+}
+
+String proactiveRuleReference(List<Map<String, dynamic>> rules) {
+  if (rules.isEmpty) return '';
+  final reference = recentMemoryReference(rules);
+  return '【最近规则分类世界书条目：用户已明确的交往边界与偏好】\n'
+      '${reference.substring(reference.indexOf('\n') + 1)}';
 }

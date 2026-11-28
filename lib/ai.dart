@@ -259,6 +259,7 @@ class AIManager {
     bool useJarvis = false,
     AICancellationToken? cancellationToken,
     bool deferPluginDelivery = false,
+    bool showInnerThoughtFirst = false,
     void Function(Map<String, dynamic> message)? onToolProgress,
     void Function(String delta)? onDelta,
     void Function()? onPreviewReset,
@@ -415,6 +416,7 @@ class AIManager {
                     // 不要为了备用重试延迟主请求的 SSE：此前首两次被强制关闭流式，
                     // 部分服务商在非流式模式下长期不返回，聊天室最终只看到超时。
                     onDelta: onDelta,
+                    showInnerThoughtFirst: showInnerThoughtFirst,
                     onPreviewReset: onPreviewReset,
                     onToolProgress: onToolProgress == null
                         ? null
@@ -956,6 +958,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     bool useJarvis = false,
     AICancellationToken? cancellationToken,
     void Function(String delta)? onDelta,
+    required bool showInnerThoughtFirst,
     void Function()? onPreviewReset,
     required void Function() onToolExecutionStarted,
     void Function(Map<String, dynamic> message)? onToolProgress,
@@ -1043,6 +1046,18 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     ChatFileTransport? requestFileTransport;
     var messages = <Map<String, dynamic>>[];
     var tools = <Map<String, dynamic>>[];
+    final innerThoughtEnabled = shouldIncludeInnerThought(
+      task: task,
+      isVoiceCall: isVoiceCall,
+      settingEnabled:
+          !task.internal && await db.getKV('inner_thought_enabled') == 'true',
+    );
+    // The provider may put the thought after some body text, even within the
+    // same chunk. Keep SSE enabled, but let the foreground queue reveal the
+    // complete reply in order instead of publishing speculative body text.
+    final holdBodyPreview = showInnerThoughtFirst && innerThoughtEnabled;
+    final previewDelta = holdBodyPreview ? null : onDelta;
+    if (holdBodyPreview) onPreviewReset?.call();
     if (task.internal) {
       final context = <String>[];
       if (task.needsHistory) {
@@ -1143,12 +1158,16 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           : '\n$coreSettings';
 
       final recentMemories = recentOrdinaryMemories(allMemories);
+      final proactiveRules = task == AIRequestTask.proactiveChat
+          ? additionalProactiveRules(allMemories, recent: recentMemories)
+          : <Map<String, dynamic>>[];
+      final proactiveRuleContext = proactiveRuleReference(proactiveRules);
       final conversationForMatch = memoryConversationQuery(text, history);
       final matchedMemories = activeGame == null
           ? await MemoryRetrievalService.instance.search(
               botId,
               conversationForMatch,
-              exclude: recentMemories,
+              exclude: [...recentMemories, ...proactiveRules],
               limit: 5,
               semanticQuery: text,
             )
@@ -1157,7 +1176,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       if (activeGame == null) {
         AppLogService.instance.add(
           'MEMORY',
-          '记忆注入 recent=${recentMemories.map((r) => r['id']).toList()} matched=${matchedMemories.map(memoryIdentity).toList()}',
+          '记忆注入 recent=${recentMemories.map((r) => r['id']).toList()} rules=${proactiveRules.map(memoryIdentity).toList()} matched=${matchedMemories.map(memoryIdentity).toList()}',
         );
       }
       stickerEmotions = allowTools && allowStickers
@@ -1258,11 +1277,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           : const <Map<String, dynamic>>[];
       final features = RequestPromptFeatures(
         tools: tools,
-        innerThought: shouldIncludeInnerThought(
-          task: task,
-          isVoiceCall: isVoiceCall,
-          settingEnabled: await db.getKV('inner_thought_enabled') == 'true',
-        ),
+        innerThought: innerThoughtEnabled,
       );
       final toolContext = allowTools
           ? await _buildToolContext(
@@ -1289,7 +1304,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       );
 
       // 通话模式独立控制，生活状态等附加提示不能关闭普通聊天的独白。
-      final innerThoughtEnabled = features.innerThought;
       // 只读取紧邻本轮的前三条消息，不向前搜集旧独白。
       String recentThoughtsContext = '';
       if (innerThoughtEnabled && history.isNotEmpty) {
@@ -1334,6 +1348,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         if (diaryTask || quoteTask || keepProfileAfterHistory) profileContext,
         if (!diaryTask && !quoteTask && activeGame == null)
           recentMemoryReference(recentMemories),
+        if (proactiveRuleContext.isNotEmpty) proactiveRuleContext,
         if (randomVoice && features.has('request_voice_reply'))
           features.voiceInstructions(voiceMessageSpeechPrompt),
         if (features.has('save_memory')) presetCategoryContext,
@@ -1628,7 +1643,13 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               : text,
           history: history,
           profileContext: profileContext,
-          worldBookContext: worldBookContext,
+          worldBookContext: task == AIRequestTask.proactiveChat
+              ? [
+                  recentMemoryReference(recentMemories),
+                  proactiveRuleContext,
+                  worldBookContext,
+                ].where((part) => part.isNotEmpty).join('\n\n')
+              : worldBookContext,
           features: features,
           proactive: task == AIRequestTask.proactiveChat,
           imagePaths: effectiveImagePaths,
@@ -1703,7 +1724,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       requestFileTransport = fileTransport;
       final qwenLong = fileProtocol == ChatFileProtocol.qwenLong;
       final toolCallingEnabled = !qwenLong && allowTools && tools.isNotEmpty;
-      final sendToolProgress =
+      final publicToolReply =
           toolCallingEnabled &&
           persistResponse &&
           task == AIRequestTask.chat &&
@@ -1712,6 +1733,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           !isVoiceCall &&
           !forceSingleReply &&
           onToolProgress != null;
+      final sendToolProgress = publicToolReply && !holdBodyPreview;
       if (sendToolProgress) {
         messages.add({
           'role': 'system',
@@ -1964,14 +1986,14 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
 
       // 处理流式响应（SSE 格式）或非流式响应
       String? innerThought;
-      final replyStream = ChatReplyStream(publicOnly: sendToolProgress);
+      final replyStream = ChatReplyStream(publicOnly: publicToolReply);
       final rawAssistantContent = StringBuffer();
       final rawReasoning = <String, StringBuffer>{};
       var hasToolCallStarted = false;
       void consumeDelta(String value) {
         if (hasToolCallStarted) return;
         final visible = replyStream.add(value);
-        if (visible.isNotEmpty) onDelta?.call(visible);
+        if (visible.isNotEmpty) previewDelta?.call(visible);
         final parsed = replyStream.content;
         replyText = parsed.text;
         innerThought = parsed.innerThought;
@@ -2074,9 +2096,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
         client.close();
         errorBody = '';
 
-        if (!hasToolCallStarted) {
+        if (!hasToolCallStarted && previewDelta != null) {
           final tail = replyStream.finish();
-          if (tail.isNotEmpty) onDelta.call(tail);
+          if (tail.isNotEmpty) previewDelta(tail);
         }
         replyText = replyStream.content.text;
         innerThought = replyStream.content.innerThought;
@@ -2117,7 +2139,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             rawAssistantContent.toString(),
             streamedToolCalls,
           );
-          if (sendToolProgress) replyText = '';
+          if (sendToolProgress || holdBodyPreview) replyText = '';
+          innerThought = null;
           await _runStreamedTools(
             publishToolProgress: sendToolProgress ? publishToolProgress : null,
             onToolExecutionStarted: onToolExecutionStarted,
@@ -2136,7 +2159,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             modelName: modelName,
             apiKey: provider['api_key']?.toString() ?? '',
             maxTokens: maxContext,
-            onDelta: onDelta,
+            streamResponse: true,
+            publicOnly: publicToolReply,
+            onDelta: previewDelta,
             onPreviewReset: onPreviewReset,
             innerThoughtSetter: (value) => innerThought = value,
             replyTextCallback: (t) => replyText = t,
@@ -2256,7 +2281,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               throw const AICancelledException();
             }
             await publishToolProgress(diaryResponseContent(message), toolCalls);
-            if (sendToolProgress) replyText = '';
+            if (sendToolProgress || holdBodyPreview) replyText = '';
+            innerThought = null;
             await _runStreamedTools(
               publishToolProgress: sendToolProgress
                   ? publishToolProgress
@@ -2277,7 +2303,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               modelName: modelName,
               apiKey: provider['api_key']?.toString() ?? '',
               maxTokens: maxContext,
-              onDelta: onDelta,
+              streamResponse: onDelta != null,
+              publicOnly: publicToolReply,
+              onDelta: previewDelta,
               onPreviewReset: onPreviewReset,
               innerThoughtSetter: (value) => innerThought = value,
               replyTextCallback: (t) => replyText = t,
@@ -2472,7 +2500,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             );
           }
         }
-        if (sendToolProgress && hadToolCalls) innerThought = null;
         final hasInnerThought = innerThought?.isNotEmpty == true;
         final segmented =
             !forceSingleReply &&
@@ -2483,12 +2510,6 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
             : <String>[replyText];
         final replyGroupId = 'reply_$ts';
         final persistedMessages = <Map<String, dynamic>>[];
-
-        final innerThoughtEnabled = shouldIncludeInnerThought(
-          task: task,
-          isVoiceCall: isVoiceCall,
-          settingEnabled: await db.getKV('inner_thought_enabled') == 'true',
-        );
 
         token?.throwIfCancelled();
         if (persistResponse &&
@@ -4371,6 +4392,8 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     required String modelName,
     required String apiKey,
     required int maxTokens,
+    required bool streamResponse,
+    required bool publicOnly,
     void Function(String delta)? onDelta,
     void Function()? onPreviewReset,
     required void Function(String) replyTextCallback,
@@ -4626,9 +4649,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
     var activeCacheScope = cacheScope;
     for (var round = 0; round < 12; round++) {
       final followUpId = '${requestId}_tool_${round + 1}';
-      final replyStream = ChatReplyStream(
-        publicOnly: publishToolProgress != null,
-      );
+      final replyStream = ChatReplyStream(publicOnly: publicOnly);
       final canPreview =
           onDelta != null &&
           (round > 0 || requiredToolNames.difference(completedTools).isEmpty);
@@ -4658,7 +4679,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
               final chatPayload = prepareChatCompletionPayload({
                 ...cachePolicy.requestOptions(
                   activeCacheScope,
-                  stream: onDelta != null,
+                  stream: streamResponse,
                 ),
                 'model': modelName,
                 'messages': prepareOpenAIChatCompletionMessages(messages),
@@ -4670,7 +4691,7 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
                   'reasoning_effort': reasoningEffort,
                 if (requestTools.isNotEmpty) 'tools': requestTools,
                 if (requestTools.isNotEmpty) 'tool_choice': 'auto',
-                if (onDelta != null) 'stream': true,
+                if (streamResponse) 'stream': true,
               });
               final followUpPayload =
                   activeResponses?.payload(chatPayload) ?? chatPayload;
@@ -4753,12 +4774,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
       }
       if (message is! Map) return;
       final parsedReply = parseChatReply(diaryResponseContent(message));
-      final next = publishToolProgress == null
-          ? parsedReply.text
-          : visibleToolProgress(diaryResponseContent(message));
-      if (parsedReply.innerThought != null) {
-        innerThoughtSetter(parsedReply.innerThought!);
-      }
+      final next = publicOnly
+          ? visibleToolProgress(diaryResponseContent(message))
+          : parsedReply.text;
       final nextCalls = message['tool_calls'] is List
           ? (message['tool_calls'] as List)
                 .whereType<Map>()
@@ -4783,6 +4801,9 @@ intent说明：confirm_care试探是否记得/在意；vent需倾听接住情绪
           );
         }
         if (next.isNotEmpty) {
+          if (parsedReply.innerThought case final thought?) {
+            innerThoughtSetter(thought);
+          }
           replyTextCallback(next);
           final visible =
               streamed && canPreview && replyStream.content.text.isNotEmpty

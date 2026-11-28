@@ -817,8 +817,9 @@ class PluginService {
           current = next;
         }
       } catch (error) {
-        errors[pack.id] = 'Hook $name：$error';
-        _log(pack.id, errors[pack.id]!);
+        // A rejected event belongs in diagnostics, not the plugin's lifecycle
+        // status. The runtime close callback handles actual process failures.
+        _log(pack.id, 'Hook $name：$error');
       }
     }
     return current;

@@ -8,6 +8,7 @@ class Bridge implements PluginProcessBridge {
   late void Function(String) receive;
   final messages = <Map<String, dynamic>>[];
   bool failOpen = false;
+  bool failSend = false;
   bool autoReady = true;
   @override
   void setReceiver(void Function(String) receiver) => receive = receiver;
@@ -19,6 +20,7 @@ class Bridge implements PluginProcessBridge {
       if (failOpen) throw StateError('bind failed');
       if (autoReady) event(value['token'] as String, {'type': 'ready'});
     }
+    if (method == 'send' && failSend) throw StateError('binder send failed');
   }
 
   void event(String token, Map<String, dynamic> value) =>
@@ -35,10 +37,11 @@ void check(bool value) {
   checks++;
 }
 
-Future<void> rejected(Future<dynamic> future) async {
+Future<void> rejected(Future<dynamic> future, {String? contains}) async {
   try {
     await future;
-  } catch (_) {
+  } catch (error) {
+    if (contains != null) check(error.toString().contains(contains));
     checks++;
     return;
   }
@@ -83,6 +86,34 @@ Future<void> main() async {
     await rejected(a.call('tool', 'bad', Object()));
   }
   check(!a.closed);
+  await rejected(
+    a.call('tool', 'oversized', 'x' * (8 * 1024 * 1024)),
+    contains: 'IPC 消息过大',
+  );
+  check(!a.closed);
+
+  final rejectedCall = a.call('event', 'hook', {});
+  final pluginError = rejected(rejectedCall, contains: 'temporary API error');
+  final rejectedId = bridge.calls.last['id'];
+  final concurrentCall = a.call('tool', 'concurrent', {});
+  final concurrentId = bridge.calls.last['id'];
+  bridge.event(ta, {
+    'type': 'result',
+    'id': rejectedId,
+    'error': 'temporary API error',
+  });
+  await pluginError;
+  check(!a.closed && closed == 0);
+  bridge.event(ta, {'type': 'result', 'id': concurrentId, 'value': 'ok'});
+  check(await concurrentCall == 'ok');
+  final nextCall = a.call('tool', 'afterError', {});
+  bridge.event(ta, {
+    'type': 'result',
+    'id': bridge.calls.last['id'],
+    'value': 'still running',
+  });
+  check(await nextCall == 'still running');
+
   for (final args in [
     {},
     {'invalid': true},
@@ -99,7 +130,7 @@ Future<void> main() async {
     check(args.isEmpty ? reply['error'] == null : reply['error'] != null);
   }
   final dying = a.call('tool', 'waiting', {});
-  final failure = rejected(dying);
+  final failure = rejected(dying, contains: 'native process exited');
   bridge.event(ta, {'type': 'fatal', 'error': 'native process exited'});
   await failure;
   check(a.closed && closed == 1 && !b.closed);
@@ -129,6 +160,36 @@ Future<void> main() async {
   slow.close();
   await starting;
   check(slow.closed);
+
+  final brokenBridge = Bridge();
+  final broken = PluginProcessTransport(
+    (_, _) async => null,
+    bridge: brokenBridge,
+  );
+  await broken.start('', '', {});
+  final interrupted = rejected(
+    broken.call('tool', 'waiting', {}),
+    contains: 'binder send failed',
+  );
+  brokenBridge.failSend = true;
+  await rejected(
+    broken.call('tool', 'cannotSend', {}),
+    contains: 'binder send failed',
+  );
+  await interrupted;
+  check(broken.closed);
+
+  final timeout = PluginProcessTransport(
+    (_, _) async => null,
+    bridge: Bridge(),
+    callTimeout: const Duration(milliseconds: 30),
+  );
+  await timeout.start('', '', {});
+  await rejected(
+    timeout.call('tool', 'hang', {}),
+    contains: 'TimeoutException',
+  );
+  check(timeout.closed);
   await turn();
   print('Plugin process transport: $checks checks passed');
 }

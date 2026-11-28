@@ -9,14 +9,14 @@ import 'main.dart' show TideMainScaffold;
 import 'plugin_launch_animation.dart';
 import 'plugin_system.dart';
 
-Future<({bool resolved, TidePluginPackage? package})> _resolveLaunch() async {
+Future<TidePluginPackage?> _resolveLaunch() async {
   try {
-    final package = await PluginSystem.instance
-        .launchAnimationPackage()
-        .timeout(const Duration(milliseconds: 600));
-    return (resolved: true, package: package);
+    return await PluginSystem.instance.launchAnimationPackage().timeout(
+      const Duration(milliseconds: 600),
+    );
   } catch (_) {
-    return (resolved: false, package: null);
+    // Plugin lookup must not prevent the built-in opening from playing.
+    return null;
   }
 }
 
@@ -85,7 +85,6 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
   _StartupSettings? _settings;
   Object? _error;
   bool _accepted = false;
-  bool _launchResolved = false;
   TidePluginPackage? _launchPackage;
   @override
   void initState() {
@@ -107,8 +106,7 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
       setState(() {
         _settings = settings;
         _accepted = settings.accepted;
-        _launchResolved = launch.resolved;
-        _launchPackage = launch.package;
+        _launchPackage = launch;
       });
     } catch (error) {
       debugPrint(
@@ -124,6 +122,7 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
     final settings = _settings;
     if (settings == null) {
       return Scaffold(
+        backgroundColor: DailyLaunchAnimation.backgroundOf(context),
         body: Center(
           child: _error == null
               ? const CircularProgressIndicator()
@@ -141,7 +140,6 @@ class _FirstLaunchFlowState extends State<FirstLaunchFlow> {
     if (package != null) {
       return PluginLaunchAnimation(package: package, child: destination);
     }
-    if (!_launchResolved) return destination;
     return DailyLaunchAnimation(
       lastPlayedDate: settings.animationDate,
       savePlayedDate: settings.saveAnimationDate,

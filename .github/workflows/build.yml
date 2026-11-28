@@ -86,9 +86,11 @@ jobs:
       - name: 检查 Dart 代码
         run: dart analyze --no-fatal-warnings
 
-      - name: 验证后台调度与消息回归测试
+      - name: 验证开屏、后台调度与聊天回归测试
         run: >-
           flutter test --no-pub --concurrency=1
+          test/daily_launch_animation_test.dart
+          test/chat_thought_order_test.dart
           test/native_background_coordinator_test.dart
           test/bot_vital_model_test.dart
           test/future_task_scheduler_test.dart

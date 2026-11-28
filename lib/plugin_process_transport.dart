@@ -17,11 +17,13 @@ class PluginProcessTransport {
     required this.bridge,
     this.pluginId = '',
     this.onClosed,
+    this.callTimeout = PluginTimeouts.call,
   });
   final PluginProcessBridge bridge;
   final String pluginId;
   final PluginHostCall host;
   final void Function()? onClosed;
+  final Duration callTimeout;
   static final _sessions = <String, PluginProcessTransport>{};
   static final _listening = Expando<bool>('plugin process receiver');
   final String _token = List.generate(
@@ -70,11 +72,14 @@ class PluginProcessTransport {
     }
   }
 
-  Future<void> _invoke(String method, Map<String, dynamic> message) async {
+  String _encode(Map<String, dynamic> message) {
     final encoded = jsonEncode({...message, 'token': _token});
     if (encoded.length > 8 * 1024 * 1024) throw StateError('插件 IPC 消息过大');
-    await bridge.send(method, encoded);
+    return encoded;
   }
+
+  Future<void> _invoke(String method, Map<String, dynamic> message) async =>
+      bridge.send(method, _encode(message));
 
   void _event(Map event) {
     if (_closed) return;
@@ -135,49 +140,55 @@ class PluginProcessTransport {
     if (_closed || !_ready.isCompleted) throw StateError('插件未运行');
     if (_pending.length >= 32) throw StateError('插件调用过多');
     final id = ++_sequence;
+    // Local encoding failures never reach the process and cannot break IPC.
+    final message = _encode({
+      'op': 'call',
+      'id': id,
+      'kind': kind,
+      'name': name,
+      'payload': payload,
+    });
     final completer = Completer<dynamic>();
     _pending[id] = completer;
     // Attach before send: disconnect may reject pending while send is in flight.
-    final response = completer.future.timeout(PluginTimeouts.call);
+    final response = completer.future.timeout(callTimeout);
     try {
       final values = await Future.wait<dynamic>([
-        _invoke('send', {
-          'op': 'call',
-          'id': id,
-          'kind': kind,
-          'name': name,
-          'payload': payload,
-        }),
+        _sendCall(message),
         response,
       ], eagerError: true);
       return values[1];
-    } on TimeoutException {
-      close();
-      rethrow;
-    } catch (error) {
-      if (!completer.isCompleted) completer.completeError(error);
-      if (error is! JsonUnsupportedObjectError) _fail(error);
+    } on TimeoutException catch (error) {
+      _fail(error);
       rethrow;
     } finally {
       _pending.remove(id);
     }
   }
 
-  void _fail(Object error) {
-    if (_closed) return;
-    if (!_ready.isCompleted) _ready.completeError(error);
-    close();
+  Future<void> _sendCall(String message) async {
+    try {
+      await bridge.send('send', message);
+    } catch (error) {
+      // Unlike a plugin result carrying an error, delivery failure is fatal.
+      _fail(error);
+      rethrow;
+    }
   }
 
-  void close() {
+  void _fail(Object error) => _close(error);
+
+  void close() => _close();
+
+  void _close([Object? error]) {
     if (_closed) return;
     _closed = true;
     if (_started && !_ready.isCompleted) {
-      _ready.completeError(StateError('插件启动已取消'));
+      _ready.completeError(error ?? StateError('插件启动已取消'));
     }
     _sessions.remove(_token);
     for (final pending in _pending.values) {
-      pending.completeError(StateError('插件独立进程已停止'));
+      pending.completeError(error ?? StateError('插件独立进程已停止'));
     }
     _pending.clear();
     unawaited(_invoke('close', {}).catchError((Object _) {}));

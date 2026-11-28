@@ -2293,6 +2293,7 @@ class _ChatRoomPageState extends State<ChatRoomPage>
               useJarvis: (await DBManager().getKV('jarvis_enabled')) == 'true',
               cancellationToken: requestToken,
               deferPluginDelivery: true,
+              showInnerThoughtFirst: true,
               onToolProgress: (row) {
                 buffer = ChatStreamBuffer();
                 if (!mounted || myGen != _requestGen) return;
@@ -2446,6 +2447,10 @@ class _ChatRoomPageState extends State<ChatRoomPage>
 
             // 内心独白流式输出完成后自动折叠
             if (isInnerThought && thoughtId.isNotEmpty) {
+              // Paint the completed thought before collapsing it or revealing
+              // any part of the next body.
+              await WidgetsBinding.instance.endOfFrame;
+              if (!mounted || myGen != _requestGen) return;
               setState(() => _expandedThoughtIds.remove(thoughtId));
             }
           }
